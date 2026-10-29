@@ -1,0 +1,1901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icons/icon-192.png" sizes="192x192" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<meta name="theme-color" content="#03060f" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>ORBITAL FREIGHT — Earth-View Shipping Console</title>
+<style>
+  :root{
+    --bg:#03060f;
+    --glass:rgba(12,22,44,.55);
+    --glass-2:rgba(10,18,36,.72);
+    --line:rgba(125,180,255,.16);
+    --line-strong:rgba(125,180,255,.32);
+    --txt:#dbe7f7;
+    --muted:#8aa6cd;
+    --accent:#4da3ff;
+    --accent-2:#22d3ee;
+    --ok:#4ade80; --warn:#fbbf24; --bad:#fb7185; --info:#60a5fa;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Roboto,system-ui,sans-serif}
+  :root{
+    --sat:env(safe-area-inset-top,0px);
+    --sab:env(safe-area-inset-bottom,0px);
+    --sal:env(safe-area-inset-left,0px);
+    --sar:env(safe-area-inset-right,0px);
+  }
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--txt);overflow:hidden;-webkit-font-smoothing:antialiased;
+    overscroll-behavior:none;touch-action:manipulation}
+  #scene{position:fixed;inset:0}
+  canvas{display:block}
+  ::selection{background:rgba(77,163,255,.35)}
+
+  /* ---------- glass surface ---------- */
+  .glass{
+    background:var(--glass);
+    backdrop-filter:blur(16px) saturate(140%);
+    -webkit-backdrop-filter:blur(16px) saturate(140%);
+    border:1px solid var(--line);
+    border-radius:16px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+    position:relative;overflow:hidden;
+  }
+  .glass::before{
+    content:'';position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(120% 60% at 50% -20%,rgba(77,163,255,.18),transparent 70%);
+  }
+  .panel{position:fixed;z-index:10;width:330px;padding:14px 16px 16px}
+  .panel > h2{
+    display:flex;align-items:center;gap:8px;
+    font-size:11px;letter-spacing:2.4px;text-transform:uppercase;color:#9dc7ff;
+    margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line);
+  }
+  .panel > h2::before{content:'';width:3px;height:12px;border-radius:2px;background:linear-gradient(180deg,var(--accent),var(--accent-2))}
+  .panel > h2 .count{margin-left:auto;color:var(--muted);letter-spacing:1px;font-weight:500}
+
+  /* ---------- top bar ---------- */
+  #topbar{
+    position:fixed;top:0;left:0;right:0;height:56px;z-index:20;overflow:hidden;
+    padding-top:var(--sat);height:calc(56px + var(--sat));
+    display:flex;align-items:center;gap:18px;padding:0 20px;
+    background:linear-gradient(180deg,rgba(4,9,20,.92),rgba(4,9,20,.35) 70%,transparent);
+    border-bottom:1px solid rgba(125,180,255,.10);
+    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  }
+  .logo{display:flex;align-items:center;gap:10px}
+  .logo .mark{
+    width:26px;height:26px;border-radius:50%;flex:none;
+    background:radial-gradient(circle at 32% 30%,#8fd0ff,#2b6fd6 55%,#0b2a5e);
+    box-shadow:0 0 14px rgba(77,163,255,.75),inset -3px -4px 8px rgba(0,0,0,.55);
+  }
+  .logo b{font-size:14px;letter-spacing:3px;font-weight:700;display:block;white-space:nowrap}
+  .logo span{display:block;font-size:9px;letter-spacing:2.6px;color:var(--muted);font-weight:500;white-space:nowrap}
+  .pills{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+  .pill{
+    display:flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;
+    font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:#bcd6f5;
+    background:rgba(20,34,66,.6);border:1px solid var(--line);
+  }
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px currentColor;color:var(--ok)}
+  .dot.warn{background:var(--warn);color:var(--warn)}
+  .dot.bad{background:var(--bad);color:var(--bad);animation:blink 1.1s infinite}
+  @keyframes blink{50%{opacity:.25}}
+  #clock{font-variant-numeric:tabular-nums;font-size:12.5px;letter-spacing:1.6px;color:#cfe4ff;white-space:nowrap;
+    padding:5px 12px;border-radius:999px;background:rgba(20,34,66,.6);border:1px solid var(--line)}
+  #focusSel{background:rgba(20,34,66,.6);border:1px solid var(--line);color:#cfe4ff;border-radius:999px;
+    padding:5px 12px;font-size:11px;letter-spacing:1px;cursor:pointer;appearance:none;width:150px;flex:none;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #focusSel option{background:#0a1428;color:#dbe7f7}
+
+  /* ---------- KPI tiles ---------- */
+  .kpi{padding:12px 14px;border-radius:14px}
+  .kpi .lbl{font-size:9.5px;letter-spacing:1.8px;text-transform:uppercase;color:var(--muted)}
+  .kpi .val{font-size:23px;font-weight:700;letter-spacing:.5px;margin-top:3px;font-variant-numeric:tabular-nums}
+  .kpi .val small{font-size:12px;font-weight:600;color:var(--muted);margin-left:2px}
+  .kpi .delta{font-size:10px;letter-spacing:.6px;margin-top:2px}
+  .up{color:var(--ok)} .down{color:var(--bad)}
+  .kpi .delta.src{color:var(--muted);font-size:9.5px;letter-spacing:.4px}
+  .kpi .delta.src.err{color:var(--warn)}
+  .spark{height:3px;margin-top:8px;border-radius:2px;background:rgba(255,255,255,.07);overflow:hidden}
+  .spark i{display:block;height:100%;border-radius:2px;background:linear-gradient(90deg,var(--accent),var(--ok));transition:width .7s}
+
+  /* ---------- left column: KPIs + shipments ---------- */
+  #leftcol{
+    position:fixed;left:calc(16px + var(--sal));top:calc(68px + var(--sat));
+    bottom:calc(50px + var(--sab));width:332px;z-index:10;
+    display:flex;flex-direction:column;gap:10px;pointer-events:none;
+  }
+  #leftcol > *{pointer-events:auto}
+  #kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;flex:0 0 auto}
+  #shipments{position:static;width:auto;flex:1 1 auto;min-height:120px;overflow-y:auto}
+  #rightcol{position:fixed;right:calc(16px + var(--sar));top:calc(68px + var(--sat));
+    bottom:calc(50px + var(--sab));width:332px;z-index:10;
+    display:flex;flex-direction:column;gap:10px;pointer-events:none}
+  #rightcol > *{pointer-events:auto}
+  #planner{position:static;width:auto;flex:0 0 auto}
+  #alerts{position:static;width:auto;flex:1 1 auto;min-height:120px;max-height:none;overflow-y:auto}
+  #leftcol,#rightcol{overflow-y:auto;scrollbar-width:thin}
+  #leftcol::-webkit-scrollbar,#rightcol::-webkit-scrollbar{width:3px}
+
+  /* ---------- shipment rows ---------- */
+  .ship{padding:9px 0;border-bottom:1px dashed rgba(125,180,255,.10);transition:background .15s;border-radius:8px}
+  .ship:hover{background:rgba(255,255,255,.04)}
+  .ship:last-child{border-bottom:none}
+  .ship .top{display:flex;align-items:center;gap:8px}
+  .ship .name{font-size:12.5px;font-weight:600;letter-spacing:.3px}
+  .ship .eta{margin-left:auto;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .ship .lane{font-size:11px;color:#9fc0e8;margin-top:2px}
+  .prog{height:5px;border-radius:3px;background:rgba(255,255,255,.07);margin-top:7px;position:relative;overflow:hidden}
+  .prog i{position:absolute;inset:0 auto 0 0;border-radius:3px;
+    background:linear-gradient(90deg,#38bdf8,#4ade80);transition:width .4s linear}
+  .prog.warn i{background:linear-gradient(90deg,#fbbf24,#fb923c)}
+  .prog.bad i{background:linear-gradient(90deg,#fb7185,#f43f5e)}
+  .prog.info i{background:linear-gradient(90deg,#60a5fa,#38bdf8)}
+  .tag{padding:1.5px 8px;border-radius:999px;font-size:10px;letter-spacing:.6px;white-space:nowrap}
+  .tag.ok{background:rgba(74,222,128,.14);color:var(--ok);border:1px solid rgba(74,222,128,.25)}
+  .tag.warn{background:rgba(251,191,36,.14);color:var(--warn);border:1px solid rgba(251,191,36,.25)}
+  .tag.bad{background:rgba(251,113,133,.14);color:var(--bad);border:1px solid rgba(251,113,133,.28)}
+  .tag.info{background:rgba(96,165,250,.14);color:var(--info);border:1px solid rgba(96,165,250,.25)}
+
+  /* ---------- planner ---------- */
+  .field{margin-bottom:9px}
+  .field label{display:block;font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+  select{
+    width:100%;background:rgba(18,32,62,.75);border:1px solid var(--line-strong);color:var(--txt);
+    border-radius:10px;padding:9px 10px;font-size:12.5px;appearance:none;cursor:pointer;
+    background-image:linear-gradient(45deg,transparent 50%,#7fb0e8 50%),linear-gradient(135deg,#7fb0e8 50%,transparent 50%);
+    background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+    background-size:5px 5px,5px 5px;background-repeat:no-repeat;
+  }
+  select:hover{border-color:rgba(125,180,255,.55)}
+  select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(77,163,255,.15)}
+  .btnrow{display:flex;gap:8px;margin-top:4px}
+  button{
+    flex:1;padding:10px;border-radius:10px;border:none;cursor:pointer;
+    font-size:11.5px;font-weight:700;letter-spacing:1.6px;color:#fff;
+    background:linear-gradient(90deg,#2563eb,#0ea5e9);box-shadow:0 6px 18px rgba(37,99,235,.35);
+    transition:filter .15s,transform .1s;
+  }
+  button:hover{filter:brightness(1.15)} button:active{transform:translateY(1px)}
+  button.ghost{flex:0 0 44px;background:rgba(30,48,86,.8);border:1px solid var(--line-strong);box-shadow:none}
+  #planOut{margin-top:12px;font-size:11.5px;line-height:1.7;color:#bcd8f8;
+    background:rgba(10,20,40,.5);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  #planOut b{color:#fff;letter-spacing:.4px}
+  #planOut .risk{margin-top:6px;font-size:11px}
+
+  /* ---------- alerts ---------- */
+  .alert{display:flex;gap:9px;padding:9px 0;border-bottom:1px dashed rgba(251,113,133,.14)}
+  .alert:last-child{border-bottom:none}
+  .alert .ico{width:18px;height:18px;flex:none;border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:700}
+  .alert.bad .ico{background:rgba(251,113,133,.16);color:var(--bad)}
+  .alert.warn .ico{background:rgba(251,191,36,.16);color:var(--warn)}
+  .alert.info .ico{background:rgba(96,165,250,.16);color:var(--info)}
+  .alert .txt{font-size:11.5px;line-height:1.5;color:#c9dcf5}
+  .alert .meta{display:block;margin-top:2px;font-size:10px;color:var(--muted);letter-spacing:.5px}
+
+  /* ---------- lane bar ---------- */
+  #lanebar{
+    position:fixed;left:50%;transform:translateX(-50%);bottom:46px;z-index:10;
+    display:flex;align-items:center;gap:8px;padding:8px 12px;
+    max-width:calc(100vw - 720px);overflow-x:auto;white-space:nowrap;
+  }
+  #lanebar::-webkit-scrollbar{height:0}
+  #lanebar .lanebar-title{font-size:9.5px;letter-spacing:1.8px;color:var(--muted);flex:none}
+  #lanebar .lanebar-title b{color:#dceaff}
+  #legendList{display:flex;gap:6px;overflow-x:auto}
+  #lanebar .lane{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:8px;cursor:pointer;
+    font-size:10.5px;color:#b6cdf0;border:1px solid transparent;transition:background .15s,opacity .2s;flex:none}
+  #lanebar .lane:hover{background:rgba(125,180,255,.08)}
+  #lanebar .lane.isolated{background:rgba(77,163,255,.13);border-color:rgba(125,180,255,.28)}
+  #lanebar .lane.dimmed{opacity:.32}
+  #lanebar .isolate{font-size:8.5px;letter-spacing:1px;text-transform:uppercase;
+    background:rgba(30,48,86,.8);border:1px solid var(--line-strong);color:#9fc0e8;border-radius:6px;padding:2px 7px;cursor:pointer;opacity:.55}
+  #lanebar .lane:hover .isolate,#lanebar .lane.isolated .isolate{opacity:1}
+  #lanebar .lane.isolated .isolate{background:var(--accent);color:#fff}
+  #lanebar .swatch{width:14px;height:3px;border-radius:2px;box-shadow:0 0 8px currentColor}
+
+
+  #hud{position:fixed;left:50%;bottom:calc(56px + var(--sab));transform:translateX(-50%);z-index:9;
+    display:flex;gap:14px;align-items:center;padding:7px 16px;border-radius:999px;
+    font-size:10.5px;letter-spacing:1.6px;color:#9fc0e8;text-transform:uppercase;
+    background:rgba(10,18,36,.5);border:1px solid var(--line);backdrop-filter:blur(10px)}
+  #hud b{color:#dceaff;font-variant-numeric:tabular-nums}
+
+  /* ---------- ticker ---------- */
+  #ticker{
+    position:fixed;left:0;right:0;bottom:0;height:calc(38px + var(--sab));
+    padding-bottom:var(--sab);z-index:20;display:flex;align-items:center;
+    background:linear-gradient(0deg,rgba(4,9,20,.95),rgba(4,9,20,.45));
+    border-top:1px solid rgba(125,180,255,.10);overflow:hidden;
+  }
+  #ticker .lbl{flex:none;padding:0 16px;height:100%;display:flex;align-items:center;gap:8px;position:relative;z-index:2;
+    font-size:10px;letter-spacing:2px;color:#04101f;font-weight:800;
+    background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+  #ticker .track{position:relative;z-index:1;display:flex;gap:44px;white-space:nowrap;padding-left:28px;
+    animation:slide 42s linear infinite;font-size:11.5px;color:#b3cbe9}
+  #ticker .track span b{color:#e6f1ff;font-weight:600}
+  #ticker:hover .track{animation-play-state:paused}
+  @keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+  /* ---------- layer chips ---------- */
+  #chips{position:fixed;top:calc(64px + var(--sat));left:50%;transform:translateX(-50%);z-index:10;
+    display:flex;gap:7px;flex-wrap:wrap;justify-content:center;max-width:92vw}
+  .chip{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;cursor:pointer;
+    font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#bcd6f5;white-space:nowrap;flex:none;
+    background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(10px);user-select:none;transition:border-color .15s}
+  .chip:hover{border-color:rgba(125,180,255,.5)}
+  .chip input{accent-color:#4da3ff;width:12px;height:12px;cursor:pointer}
+  .chip:has(input:not(:checked)){opacity:.45}
+
+  /* ---------- about overlay ---------- */
+  #about{position:fixed;inset:0;z-index:60;background:rgba(3,6,15,.74);backdrop-filter:blur(14px);
+    display:none;place-items:center}
+  #about .card{max-width:580px;width:92vw;padding:28px 30px;border-radius:18px}
+  #about h3{letter-spacing:3px;font-size:14px;margin-bottom:12px;color:#9dc7ff;text-transform:uppercase}
+  #about p{font-size:12.5px;line-height:1.7;color:#c9dcf5;margin-bottom:10px}
+  #about .k{display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px dashed rgba(125,180,255,.14);color:#9dc0e8}
+  #about .k b{color:#e6f1ff}
+  .ghostbtn{flex:none !important;background:rgba(20,34,66,.6);border:1px solid var(--line);color:#cfe4ff;
+    border-radius:999px;padding:5px 14px;font-size:11px;letter-spacing:1.2px;cursor:pointer;box-shadow:none}
+  .ghostbtn:hover{border-color:rgba(125,180,255,.55)}
+  #installBtn{color:#04101f;font-weight:700;border-color:transparent;
+    background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+  #installBtn[hidden]{display:none}
+
+  /* ---------- vignette + scanlines ---------- */
+  #vignette{position:fixed;inset:0;z-index:5;pointer-events:none;
+    background:radial-gradient(120% 90% at 50% 45%,transparent 55%,rgba(0,0,0,.55) 100%)}
+  #err{position:fixed;bottom:46px;left:8px;z-index:99;max-width:62vw;color:#ff9aa6;font:12px monospace;
+    background:rgba(30,0,6,.82);padding:8px;border-radius:8px;white-space:pre-wrap;display:none}
+
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(125,180,255,.28);border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(125,180,255,.5)}
+
+  @media (max-width:1520px){ .pills .pill:nth-child(n+3){display:none} }
+  @media (max-width:1300px){ .pills .pill:nth-child(n+2){display:none} }
+  @media (max-width:1100px){ .pills{display:none} }
+  .pills{flex-wrap:nowrap}
+  @media (max-width:1280px){
+    #leftcol,#rightcol{width:300px}
+  }
+  @media (max-width:1180px){
+    #chips{gap:5px}
+    .chip{font-size:9.5px;padding:5px 9px;letter-spacing:.8px}
+  }
+  @media (max-width:1080px){
+    #leftcol,#rightcol{width:280px}
+    #hud{display:none}
+    #lanebar{max-width:calc(100vw - 600px)}
+  }
+  @media (max-width:900px){
+    .pills{display:none}
+    #hud{display:none}
+  }
+  /* ============================================================
+     PHONE LAYOUT
+     The globe is the subject, so it keeps a guaranteed band of
+     screen. Panels collapse into a single bottom sheet; telemetry
+     becomes a horizontal strip. Desktop is untouched above.
+     ============================================================ */
+  #mtabs,.grabber-el{display:none}
+
+  @media (max-width:820px){
+    #topbar{gap:10px;padding:var(--sat) calc(10px + var(--sar)) 0 calc(10px + var(--sal))}
+    .logo b{font-size:11px;letter-spacing:2px}
+    .logo span{font-size:8px;letter-spacing:1.8px}
+    #clock{font-size:11px;letter-spacing:1px;padding:4px 10px}
+    #focusSel{display:none}
+    #chips{top:calc(56px + var(--sat));left:0;right:0;transform:none;
+      max-width:100vw;width:100vw;
+      justify-content:flex-start;flex-wrap:nowrap;overflow-x:auto;
+      -webkit-overflow-scrolling:touch;scrollbar-width:none;
+      padding:6px calc(8px + var(--sar)) 6px calc(8px + var(--sal))}
+    #chips::-webkit-scrollbar{display:none}
+    #lanebar,#hud{display:none}
+
+    /* Telemetry strip: one scrollable row pinned under the chips.
+       Height is explicit so the drawer below it can start at a known offset
+       instead of guessing at the tallest tile. */
+    #kpis{position:fixed;left:0;right:0;top:calc(96px + var(--sat));z-index:11;
+      display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+      scrollbar-width:none;height:78px;
+      padding:0 calc(8px + var(--sar)) 6px calc(8px + var(--sal))}
+    #kpis::-webkit-scrollbar{display:none}
+    .kpi{flex:0 0 auto;width:124px;height:72px;padding:7px 9px;overflow:hidden}
+    .kpi .lbl{font-size:8.5px;letter-spacing:1.1px;white-space:nowrap;
+      overflow:hidden;text-overflow:ellipsis}
+    .kpi .val{font-size:17px}
+    .kpi .val small{font-size:10px}
+    .kpi .delta.src{font-size:8.5px}
+    .spark{margin-top:5px}
+
+    /* Bottom sheet: vessels / route / alerts share one drawer.
+       The drawer starts below the telemetry strip, never over it. */
+    #mtabs{display:flex;position:fixed;z-index:22;
+      left:calc(8px + var(--sal));right:calc(8px + var(--sar));
+      bottom:calc(42px + var(--sab));gap:6px}
+    #mtabs button{flex:1;padding:7px 4px;border-radius:999px;font-size:9.5px;
+      letter-spacing:1.1px;text-transform:uppercase;cursor:pointer;
+      color:#cfe4ff;background:rgba(20,34,66,.72);border:1px solid var(--line);
+      backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+    #mtabs button.on{background:linear-gradient(90deg,var(--accent),var(--accent-2));
+      color:#04101f;font-weight:700;border-color:transparent}
+
+    .grabber-el{display:block;width:38px;height:4px;border-radius:2px;
+      margin:0 auto 8px;background:rgba(125,180,255,.45);flex:none}
+
+    /* One drawer at a time. Anchored to the bottom and sized to its content
+       (capped), so it never stretches up across the globe. */
+    #leftcol,#rightcol{position:fixed;left:0;right:0;width:auto;
+      top:auto;bottom:calc(84px + var(--sab));pointer-events:none;gap:0}
+    #leftcol,#rightcol{display:none}
+    #leftcol.open,#rightcol.open{display:flex;flex-direction:column}
+    #leftcol.open{max-height:38vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    #rightcol.open{max-height:40vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    /* kpis are out of flow now, so the drawer only holds the panel */
+    #leftcol > #shipments{flex:0 1 auto;min-height:0}
+    #rightcol > #planner,#rightcol > #alerts{flex:0 0 auto}
+
+    /* Collapsed: only the tab row and ticker remain, globe fills the screen */
+    #leftcol.collapsed,#rightcol.collapsed{display:none}
+
+    .panel{width:auto;margin:0 calc(8px + var(--sar)) 0 calc(8px + var(--sal));
+      border-radius:16px}
+    #leftcol > #shipments{display:flex;flex-direction:column}
+    #leftcol > #shipments > div:last-child{overflow-y:auto;min-height:0;
+      -webkit-overflow-scrolling:touch}
+    #rightcol > #planner,#rightcol > #alerts{display:block;flex:0 0 auto}
+    .ship .eta{display:none}
+  }
+  @media (max-width:480px){
+    .logo .mark{width:20px;height:20px}
+    .logo b{font-size:10px;letter-spacing:1.5px}
+    .logo span{display:none}
+    #clock{font-size:10.5px;padding:4px 8px}
+    #aboutBtn{padding:4px 10px;font-size:10px}
+    #installBtn{padding:4px 10px;font-size:10px}
+    .kpi{width:116px}
+    #kpis{top:calc(92px + var(--sat));height:74px}
+    .kpi{height:68px}
+    #leftcol.open{max-height:46vh}
+    .ship .name{font-size:11.5px}
+  }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="vignette"></div>
+<div id="err"></div>
+
+<header id="topbar">
+  <div class="logo">
+    <div class="mark"></div>
+    <div><b>ORBITAL FREIGHT</b><span>EARTH-VIEW SHIPPING CONSOLE</span></div>
+  </div>
+  <div id="clock">--:--:-- UTC</div>
+  <select id="focusSel" title="Fly the camera to a body">
+    <option value="free">Free camera</option>
+    <option value="earth">Earth</option>
+    <option value="moon">Moon</option>
+    <option value="jupiter">Jupiter</option>
+    <option value="saturn">Saturn</option>
+    <option value="mars">Mars</option>
+    <option value="neptune">Neptune</option>
+    <option value="sun">Sun</option>
+  </select>
+  <button id="installBtn" class="ghostbtn install" hidden title="Install Orbital Freight as an app">INSTALL</button>
+  <button id="aboutBtn" class="ghostbtn" title="Mission briefing &amp; data credits">ABOUT</button>
+  <div class="pills">
+    <div class="pill" id="pillIss"><i class="dot"></i><span>ISS linking</span></div>
+    <div class="pill" id="pillWx"><i class="dot"></i><span>Weather linking</span></div>
+    <div class="pill" id="pillAis"><i class="dot"></i><span>AIS linking</span></div>
+    <div class="pill" id="pillAdvisories"><i class="dot"></i><span>0 advisories</span></div>
+  </div>
+</header>
+
+<div id="leftcol">
+  <section id="kpis">
+    <div class="kpi glass"><div class="lbl">ISS altitude</div><div class="val" id="tIssAlt">--<small>km</small></div>
+      <div class="delta src" id="tIssPos">fetching position…</div><div class="spark"><i id="tIssBar" style="width:0%"></i></div></div>
+    <div class="kpi glass"><div class="lbl">ISS velocity</div><div class="val" id="tIssVel">--<small>km/h</small></div>
+      <div class="delta src" id="tIssVis">—</div><div class="spark"><i id="tVelBar" style="width:0%"></i></div></div>
+    <div class="kpi glass"><div class="lbl">Lagos</div><div class="val" id="tLagosT">--<small>°C</small></div>
+      <div class="delta src" id="tLagosW">—</div><div class="spark"><i id="tLagosBar" style="width:0%"></i></div></div>
+    <div class="kpi glass"><div class="lbl">Rotterdam</div><div class="val" id="tRotT">--<small>°C</small></div>
+      <div class="delta src" id="tRotW">—</div><div class="spark"><i id="tRotBar" style="width:0%"></i></div></div>
+    <div class="kpi glass"><div class="lbl">Significant wave</div><div class="val" id="tSea">--<small>m</small></div>
+      <div class="delta src" id="tSeaSwell">North Sea · analysis</div><div class="spark"><i id="tSeaBar" style="width:0%"></i></div></div>
+    <div class="kpi glass"><div class="lbl">Subsolar point</div><div class="val" id="tSub">--<small>°</small></div>
+      <div class="delta src" id="tSubDetail">computed from UTC</div><div class="spark"><i id="tSubBar" style="width:0%"></i></div></div>
+  </section>
+
+  <div id="grabber" class="grabber-el" aria-hidden="true"></div>
+  <section class="panel glass" id="shipments">
+    <h2>Live Vessels <span class="count" id="shipCount">connecting…</span></h2>
+    <div id="shipList"></div>
+  </section>
+</div>
+
+<div id="lanebar" class="glass">
+  <span class="lanebar-title">LANES · <b id="laneCount">9</b></span>
+  <div id="legendList"></div>
+</div>
+
+<div id="mtabs" role="tablist" aria-label="Panels">
+  <button type="button" data-sheet="leftcol" class="on" aria-selected="true">Vessels</button>
+  <button type="button" data-sheet="rightcol" aria-selected="false">Route</button>
+  <button type="button" data-sheet="" aria-selected="false">Globe</button>
+</div>
+
+<div id="rightcol">
+  <div id="grabber2" class="grabber-el" aria-hidden="true"></div>
+  <section class="panel glass" id="planner">
+    <h2>Route Planner</h2>
+    <div class="field"><label>Origin</label><select id="origin"></select></div>
+    <div class="field"><label>Destination</label><select id="dest"></select></div>
+    <div class="btnrow">
+      <button id="planBtn">PLOT ROUTE</button>
+      <button class="ghost" id="swapBtn" title="Swap origin and destination">&#8646;</button>
+    </div>
+    <div id="planOut">Select two ports and plot a great-circle lane.</div>
+  </section>
+
+  <section class="panel glass" id="alerts">
+    <h2>Risk Alerts <span class="count" id="alertCount">5 open</span></h2>
+    <div id="alertList"></div>
+  </section>
+</div>
+
+<div id="hud">
+  <span>Cam range <b id="hudAlt">31.4</b> Mm</span>
+  <span>Zoom <b id="hudZoom">1.00x</b></span>
+  <span>Routes <b id="hudRoutes">9</b></span>
+  <span>FPS <b id="hudFps">60</b></span>
+</div>
+
+<div id="chips">
+  <label class="chip"><input type="checkbox" id="lyClouds" checked><span>Clouds</span></label>
+  <label class="chip"><input type="checkbox" id="lyLights" checked><span>City lights</span></label>
+  <label class="chip"><input type="checkbox" id="lyLanes" checked><span>Lanes</span></label>
+  <label class="chip"><input type="checkbox" id="lyLabels" checked><span>Port labels</span></label>
+  <label class="chip"><input type="checkbox" id="lyISS" checked><span>ISS</span></label>
+  <label class="chip"><input type="checkbox" id="lyMoon" checked><span>Moon</span></label>
+  <label class="chip"><input type="checkbox" id="lyReal" checked><span>Real-time sun</span></label>
+</div>
+
+<footer id="ticker">
+  <div class="lbl">LIVE FEED</div>
+  <div class="track" id="tickerTrack"></div>
+</footer>
+
+<div id="about">
+  <div class="card glass">
+    <h3>Orbital Freight — Earth-View Shipping Console</h3>
+    <p>A mission-view of global ocean-freight traffic, lit by a single Sun whose direction is derived
+      from UTC — solar longitude in the ecliptic, declination from the exact spherical relation, and
+      the equation of time applied. Orbit the globe, read the terminator, and inspect the world's major
+      trade lanes — from the Strait of Malacca to the Panama Canal.</p>
+    <div class="k"><span>Basemap</span><b>Blue Marble-class texture via third-party mirror (provenance unverified)</b></div>
+    <div class="k"><span>City lights</span><b>NASA "Earth at Night" composite (pre-VIIRS, not Black Marble)</b></div>
+    <div class="k"><span>Clouds</span><b>Static MODIS-derived composite — not live satellite imagery</b></div>
+    <div class="k"><span>Day / night</span><b>UTC → solar longitude + declination + equation of time; geometry and tiles share one source</b></div>
+    <div class="k"><span>ISS</span><b>TLE (element set) propagated client-side with satellite.js SGP4 · fallback: wheretheiss.at telemetry anchors</b></div>
+    <div class="k"><span>Port weather</span><b>Open-Meteo model analysis (nowcast) · Lagos &amp; Rotterdam</b></div>
+    <div class="k"><span>Sea state</span><b>Open-Meteo marine model · North Sea gridpoint off Rotterdam</b></div>
+    <div class="k"><span>Vessel positions</span><b>Live AIS via server-side proxy (needs a provider key)</b></div>
+    <div class="k"><span>Lanes &amp; ports</span><b>Real coordinates, great-circle geometry</b></div>
+    <div class="k"><span>Scene scale</span><b>Lighting directions exact; Moon · 1/60 real distance, Sun and planets at display distances</b></div>
+    <div class="k"><span>Background sky</span><b>Synthetic random starfield — not a real star catalog</b></div>
+    <p style="margin-top:12px;color:var(--muted)">Values on this page are drawn from the sources listed above.
+      Anything that cannot be sourced is shown as unavailable rather than estimated. There is deliberately
+      no distance-based "risk" rating — real maritime risk is chokepoint- and weather-specific, and none
+      of the sources here serve it. Route ETAs are a great-circle distance divided by a stated 17-knot
+      service speed (756 km/day) — a planning figure, not a booking.</p>
+    <p style="margin-top:10px;color:var(--muted)">Drag to orbit · scroll to zoom · use the focus menu to follow
+      a body · click a lane to isolate it · click a vessel row to fly to its reported position.
+      Built with three.js r160 and public NASA texture sets. This is not a NASA product; "NASA" refers
+      only to the origin of the texture data.</p>
+  </div>
+</div>
+
+<script>
+  const err = document.getElementById('err');
+  if (location.protocol === 'file:') {
+    err.style.display = 'block';
+    err.textContent = 'Serve over HTTP (ES modules are blocked on file://).\nRun:  python -m http.server 8000   then open http://localhost:8000';
+  }
+  addEventListener('error', e => { err.style.display='block'; err.textContent += (e.message||e.type)+'\n'; });
+  addEventListener('unhandledrejection', e => { err.style.display='block'; err.textContent += ((e.reason&&e.reason.message)||e.reason)+'\n'; });
+</script>
+
+<!-- satellite.js (UMD build) for client-side SGP4 propagation of the ISS TLE.
+     If this file fails to load, the app falls back to the wheretheiss.at
+     telemetry-anchor mode and everything still works. -->
+<script src="https://unpkg.com/satellite.js@5.0.0/dist/satellite.min.js"
+        onerror="window.__noSatelliteLib = true"></script>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============================================================
+   Verified texture sources (all HTTP 200, CORS enabled)
+   ============================================================ */
+const THREE_TEX = 'https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/';
+const PLANET_TEX = 'https://raw.githubusercontent.com/dcr6174/solar-atlas/main/assets/';
+
+const loader = new THREE.TextureLoader();
+function loadTex(url) {
+  return new Promise(resolve => loader.load(url, t => { t.colorSpace = THREE.SRGBColorSpace; resolve(t); },
+                                           undefined, () => resolve(null)));
+}
+
+/* ============================================================
+   Renderer / Scene / Camera
+   ============================================================ */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+document.getElementById('scene').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 6000);
+camera.position.set(7.5, 3.2, 13.5);   // framing puts the terminator in view: lit limb + city lights
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.minDistance = 5;
+controls.maxDistance = 140;
+controls.enablePan = false;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.25;
+
+function radialTexture(stops) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  stops.forEach((s, i) => grad.addColorStop(i / (stops.length - 1), s));
+  g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(c);
+}
+
+/* ============================================================
+   ONE SUN — the only light source in the scene
+   ============================================================ */
+/* ONE SUN — the only light source. Its direction lies in the ecliptic (world
+   X-Z) plane at the Sun's real solar longitude, recomputed every frame together
+   with the terminator. Lighting direction is exact; drawn distance and size are
+   display compromises (disclosed in the About panel). */
+const sunLight = new THREE.DirectionalLight(0xfff2d8, 3.2);
+sunLight.target.position.set(0, 0, 0);
+scene.add(sunLight.target);
+scene.add(sunLight);
+scene.add(new THREE.AmbientLight(0x1b2a4d, 0.35));
+
+const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(1.4, 32, 32),
+  new THREE.MeshBasicMaterial({ color: 0xfff0c4 }));
+scene.add(sunMesh);
+
+const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: radialTexture(['rgba(255,255,255,1)', 'rgba(255,226,160,0.55)', 'rgba(255,190,90,0)']),
+  color: 0xffd27f, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending
+}));
+sunGlow.scale.set(9, 9, 1);
+scene.add(sunGlow);
+
+/* ============================================================
+   Starfield
+   ============================================================ */
+function starLayer(count, radius, size, opacity, color) {
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const r = radius[0] + Math.random() * (radius[1] - radius[0]);
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+    pos[i * 3 + 1] = r * Math.cos(phi);
+    pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+    color, size, sizeAttenuation: false, transparent: true, opacity })));
+}
+starLayer(7000, [900, 2000], 1.2, 0.85, 0xffffff);
+starLayer(1200, [900, 2000], 2.6, 0.9, 0xbfd8ff);
+
+/* ============================================================
+   EARTH — day/night, clouds, city lights, atmosphere
+   ============================================================ */
+const EARTH_R = 3;
+const EARTH_KM = 6371;               // scene scale: 1 unit = EARTH_KM / EARTH_R km
+const OBLSQ = 0.4091;                // obliquity of the ecliptic (23.44 deg)
+const earthPivot = new THREE.Group();
+scene.add(earthPivot);
+/* Rig, inside-out: the axial tilt is the PARENT, the spin is the CHILD, so the
+   planet rotates about its own tilted axis. `earthTilt` is the Earth-fixed
+   geographic frame; `earthAxial` holds the fixed obliquity relative to the
+   ecliptic, whose plane is world X-Z. The Sun is placed in that plane from its
+   real solar longitude, and earthTilt.rotation.y is solved each frame so that
+   the rendered subsolar point equals the analytic (decl, subLon) computed from
+   UTC — the terminator is then geographically real, matching the tiles. */
+const earthAxial = new THREE.Group(); earthAxial.rotation.x = OBLSQ; earthPivot.add(earthAxial);
+const earthTilt = new THREE.Group(); earthAxial.add(earthTilt);
+
+const [dayTex, nightTex, cloudTex, bumpTex, specTex, moonTex] = await Promise.all([
+  loadTex(THREE_TEX + 'earth_atmos_2048.jpg'),
+  loadTex(THREE_TEX + 'earth_lights_2048.png'),
+  loadTex(THREE_TEX + 'earth_clouds_2048.png'),
+  loadTex(THREE_TEX + 'earth_normal_2048.jpg'),
+  loadTex(THREE_TEX + 'earth_specular_2048.jpg'),
+  loadTex(THREE_TEX + 'moon_1024.jpg')
+]);
+
+const earthMat = new THREE.MeshPhongMaterial({
+  map: dayTex, bumpMap: bumpTex, bumpScale: 0.06,
+  specularMap: specTex, specular: new THREE.Color(0x224466), shininess: 18
+});
+
+// NASA city lights fade in on the night side of the terminator
+const sunDirUniform = { value: new THREE.Vector3(1, 0, 0) };   // world-space, set every frame
+const nightToggleUniform = { value: 1.0 };
+if (nightTex) {
+  earthMat.onBeforeCompile = (shader) => {
+    shader.uniforms.nightMap = { value: nightTex };
+    shader.uniforms.sunDir = sunDirUniform;
+    shader.uniforms.uNight = nightToggleUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vNightNormal;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\nvNightNormal = normalize(mat3(modelMatrix) * objectNormal);');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>',
+        '#include <common>\nuniform sampler2D nightMap;\nuniform vec3 sunDir;\nuniform float uNight;\nvarying vec3 vNightNormal;')
+      .replace('#include <emissivemap_fragment>', `
+        #include <emissivemap_fragment>
+        float ndl = dot(normalize(vNightNormal), normalize(sunDir));
+        float nightFactor = smoothstep(0.18, -0.22, ndl);
+        totalEmissiveRadiance += texture2D(nightMap, vMapUv).rgb * nightFactor * 3.4 * uNight;
+      `);
+  };
+}
+const earthMesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 96, 96), earthMat);
+earthTilt.add(earthMesh);
+
+const clouds = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R + 0.045, 72, 72),
+  new THREE.MeshPhongMaterial({ map: cloudTex, color: 0xffffff, transparent: true,
+    opacity: cloudTex ? 0.72 : 0, depthWrite: false }));
+earthTilt.add(clouds);
+
+// Rim-only atmosphere glow (front-side fresnel shell, additive)
+const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R + 0.13, 96, 96),
+  new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.FrontSide, blending: THREE.AdditiveBlending,
+    uniforms: { glow: { value: new THREE.Color(0x3f86ff) }, power: { value: 3.2 }, strength: { value: 1.05 } },
+    vertexShader: `
+      varying vec3 vNormalV; varying vec3 vViewDir;
+      void main(){
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vNormalV = normalize(normalMatrix * normal);
+        vViewDir = normalize(-mvPosition.xyz);
+        gl_Position = projectionMatrix * mvPosition;
+      }`,
+    fragmentShader: `
+      uniform vec3 glow; uniform float power; uniform float strength;
+      varying vec3 vNormalV; varying vec3 vViewDir;
+      void main(){
+        float rim = 1.0 - abs(dot(normalize(vNormalV), normalize(vViewDir)));
+        float i = pow(clamp(rim, 0.0, 1.0), power) * strength;
+        gl_FragColor = vec4(glow * i, i);
+      }`
+  }));
+earthTilt.add(atmosphere);
+
+/* ============================================================
+   MOON orbiting Earth — real orbit elements: ~60.3 Earth radii out,
+   5.15° off the ecliptic, 27.32-day sidereal period. Parented to
+   earthPivot (not the spinning planet) so the orbit plane tracks the
+   ecliptic; angle over the year is animated in the render loop.
+   ============================================================ */
+const moonOrbit = new THREE.Group();
+moonOrbit.rotation.x = 5.145 * Math.PI / 180;
+earthPivot.add(moonOrbit);
+const moon = new THREE.Mesh(new THREE.SphereGeometry(0.82, 48, 48),
+  new THREE.MeshPhongMaterial({ map: moonTex, color: moonTex ? 0xffffff : 0xcccccc, shininess: 4 }));
+moon.position.set(181.0, 0, 0);
+moonOrbit.add(moon);
+
+/* ============================================================
+   ISS — ground track anchored to real telemetry, extrapolated with
+   orbital mechanics between fixes. Track parametrization reaches
+   max latitude = inclination (51.6 deg), NOT the complement.
+   ============================================================ */
+const issGroup = new THREE.Group(); earthTilt.add(issGroup);
+const ISS_INC = 51.6 * Math.PI / 180;
+const EARTH_ROT_RATE = 360 / 86164;           // deg/s, sidereal — Earth turns under the orbit
+
+// Dashed ground track rebuilt from each telemetry fix. The regression term
+// (Earth-rotation subtraction in the longitude) is what makes the track shift
+// westward every orbit, like the real ground track.
+let issTrack = null;
+function groundTrackPoints(lon0, u0, periodS, altKm, backRev, fwdRev) {
+  const pts = [];
+  const wOrb = 2 * Math.PI / periodS;                       // rad/s along-track
+  const R = EARTH_R + (altKm / EARTH_KM) * EARTH_R;
+  const nodeTermAt = u => Math.atan2(Math.cos(ISS_INC) * Math.sin(u), Math.cos(u));
+  for (let u = u0 - backRev * 2 * Math.PI; u <= u0 + fwdRev * 2 * Math.PI; u += 0.02) {
+    const lat = Math.asin(Math.sin(ISS_INC) * Math.sin(u)) * 180 / Math.PI;
+    const lonDeg = lon0 + (nodeTermAt(u) - nodeTermAt(u0)) * 180 / Math.PI
+                  - EARTH_ROT_RATE * ((u - u0) / wOrb);
+    pts.push(unitVector(lat, ((lonDeg + 540) % 360) - 180).multiplyScalar(R));
+  }
+  return pts;
+}
+function rebuildIssTrack() {
+  if (issTrack) { issTrack.geometry.dispose(); issGroup.remove(issTrack); }
+  let pts;
+  if (sgp4Active()) {
+    // SGP4 mode: sample the propagated ground track across ~3.3 orbits
+    const periodS = (2 * Math.PI / tleState.satrec.no) * 60;
+    const stepMs = 45e3, back = periodS * 1.6 * 1000, fwd = periodS * 1.7 * 1000;
+    pts = [];
+    for (let t = Date.now() - back; t <= Date.now() + fwd; t += stepMs) {
+      const fix = sgp4Sample(t);
+      if (!fix) break;
+      pts.push(unitVector(fix.lat, fix.lon).multiplyScalar(EARTH_R + (fix.alt / EARTH_KM) * EARTH_R));
+    }
+  } else {
+    pts = groundTrackPoints(issState.lon0, issState.u0, issState.periodS,
+      issState.alt, 1.6, 1.7);
+  }
+  issTrack = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineDashedMaterial({ color: 0xfde68a, dashSize: 0.22, gapSize: 0.16, transparent: true, opacity: 0.65 }));
+  issTrack.computeLineDistances();
+  issGroup.add(issTrack);
+}
+
+const issMesh = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12),
+  new THREE.MeshBasicMaterial({ color: 0xfde68a }));
+const issGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: radialTexture(['rgba(255,255,255,1)', 'rgba(253,230,138,0.4)', 'rgba(253,230,138,0)']),
+  color: 0xfde68a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+issGlow.scale.set(0.5, 0.5, 1);
+issGroup.add(issMesh, issGlow);
+issMesh.visible = false;
+
+// Real ISS state. Each 15-second fix stores the anchor (lat0, lon0, argument of
+// latitude u0, orbital period). Between fixes the marker is advanced along the
+// inclined orbit at the measured rate, with the Earth's sidereal rotation
+// subtracted from longitude — so it stays on a physically correct ground track.
+const issState = { lat: 0, lon: 0, vel: 0, alt: 0, ready: false,
+                   lat0: 0, lon0: 0, u0: 0, t0: 0, periodS: 0, prevLat: null };
+
+function setIssFromTelemetry(d) {
+  const nowSec = Date.now() / 1000;
+  const rOrbit = EARTH_KM + d.altitude;                    // orbital radius, not surface radius
+  const periodS = (2 * Math.PI * rOrbit) / Math.max(1000, d.velocity); // sec
+  let s = Math.sin(d.latitude * Math.PI / 180) / Math.sin(ISS_INC);
+  if (Math.abs(s) > 1) s = Math.sign(s);
+  let u0 = Math.asin(s);
+  // the fix gives latitude but not its sign of motion; consecutive fixes disambiguate
+  if (issState.prevLat !== null && d.latitude < issState.prevLat) u0 = Math.PI - u0;
+  issState.prevLat = d.latitude;
+  issState.lat0 = d.latitude; issState.lon0 = d.longitude; issState.u0 = u0;
+  issState.t0 = nowSec; issState.periodS = periodS;
+  issState.vel = d.velocity; issState.alt = d.altitude;
+  issState.ready = true;
+  issMesh.visible = true;
+  rebuildIssTrack();
+  applyIssPosition();
+}
+function applyIssPosition() {
+  const dt = Math.min(Math.max(0, Date.now() / 1000 - issState.t0), 300); // cap stale extrapolation
+  const u = issState.u0 + (2 * Math.PI / issState.periodS) * dt;
+  const lat = Math.asin(Math.sin(ISS_INC) * Math.sin(u)) * 180 / Math.PI;
+  const nodeTermAt = x => Math.atan2(Math.cos(ISS_INC) * Math.sin(x), Math.cos(x));
+  const lon = ((issState.lon0 + (nodeTermAt(u) - nodeTermAt(issState.u0)) * 180 / Math.PI
+              - EARTH_ROT_RATE * dt) + 540) % 360 - 180;
+  issState.lat = lat; issState.lon = lon;
+  // marker altitude = the reported altitude, scaled onto the globe (not hardcoded)
+  const R = EARTH_R + (issState.alt / EARTH_KM) * EARTH_R;
+  const p = unitVector(lat, lon).multiplyScalar(R);
+  issMesh.position.copy(p);
+  issGlow.position.copy(p);
+}
+
+/* ============================================================
+   ISS — SGP4 (primary when available) — client-side propagation of
+   a Celestrak-sourced TLE via satellite.js, refreshed every 6 h.
+   The telemetry (wheretheiss.at SGP4) path above remains as the
+   fallback: if the TLE feed is unreachable, nothing else changes.
+   ============================================================ */
+const SGP4 = (typeof window !== 'undefined' && window.satellite &&
+              typeof window.satellite.twoline2satrec === 'function') ? window.satellite : null;
+const TLE_URL = 'https://tle.ivanstanojevic.me/api/tle/25544';
+const TLE_REFRESH_MS = 6 * 3600e3;
+const TLE_MAX_AGE_MS = 72 * 3600e3;
+const SGP4_TICK_MS = 250;                     // propagate at 4 Hz
+const SGP4_TRACK_MS = 60e3;                   // rebuild dashed track each minute
+let sgp4LastFix = 0, sgp4TrackAt = 0, issCrossAt = 0;
+
+const tleState = { line1: null, line2: null, satrec: null, fetchedAt: 0, name: 'ISS (ZARYA)' };
+
+function sgp4Active() {
+  return !!(SGP4 && tleState.satrec && !tleState.satrec.error);
+}
+
+async function loadTle(force) {
+  if (!SGP4) return;
+  if (!force && (Date.now() - tleState.fetchedAt) < TLE_REFRESH_MS) return;
+  try {
+    const r = await fetch(TLE_URL, { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const b = await r.json();
+    if (!b.line1 || !b.line2) throw new Error('TLE payload missing element sets');
+    const satrec = SGP4.twoline2satrec(b.line1, b.line2);
+    if (!satrec || satrec.error) throw new Error('TLE not usable for SGP4');
+    // self-test: verify the UMD global really exposes the propagation API
+    // before trusting it (defends against a silently missing member)
+    const missing = ['propagate', 'gstime', 'eciToGeodetic', 'degreesLat', 'degreesLong']
+      .filter(k => typeof SGP4[k] !== 'function');
+    if (missing.length) throw new Error('satellite.js API incomplete: missing ' + missing.join(', '));
+    const t0 = SGP4.propagate(satrec, new Date());
+    if (!t0 || !t0.position) {
+      throw new Error('SGP4 self-test failed ' +
+        (satrec.error ? '(satrec error ' + satrec.error + ')' : '(no position returned)'));
+    }
+    tleState.line1 = b.line1; tleState.line2 = b.line2;
+    tleState.satrec = satrec; tleState.fetchedAt = Date.now();
+    if (b.name) tleState.name = String(b.name);
+    setPill('pillIss', 'ok', 'ISS live · SGP4');
+  } catch (err) {
+    // Surface why, then stay in the telemetry-anchor mode; the poll cadence
+    // below decides whether to retry
+    setPill('pillIss', 'bad', 'ISS TLE: ' + err.message);
+  }
+}
+
+/** Propagate at time t (ms); returns {lat, lon, alt, vel} or null. */
+function sgp4Sample(tMs) {
+  if (!sgp4Active()) return null;
+  const date = new Date(tMs);
+  const pv = SGP4.propagate(tleState.satrec, date);
+  if (!pv || !pv.position) return null;
+  const gd = SGP4.eciToGeodetic(pv.position, SGP4.gstime(date));
+  const v = pv.velocity;
+  return {
+    lat: SGP4.degreesLat(gd.latitude),
+    lon: SGP4.degreesLong(gd.longitude),
+    alt: gd.height,
+    vel: Math.hypot(v.x, v.y, v.z) * 3600,    // km/h, inertial speed
+  };
+}
+
+/** One propagation fix for the marker; also derives sunlit state consistently
+    with the rendered terminator (dot product against the same world sun dir the
+    earth shader uses) — no reliance on the provider for day/night. */
+function sgp4Fix(nowMs) {
+  const fix = sgp4Sample(nowMs);
+  if (!fix) {
+    // propagate failed (satellite.js sets satrec.error): say so once and let
+    // the anchor mode take over rather than silently freezing the tiles
+    if (!sgp4Fix.reported) {
+      sgp4Fix.reported = true;
+      setPill('pillIss', 'bad', 'ISS SGP4 failed' +
+        (tleState.satrec && tleState.satrec.error ? ' (error ' + tleState.satrec.error + ')' : ''));
+    }
+    return false;
+  }
+  issState.lat = fix.lat; issState.lon = fix.lon;
+  issState.alt = fix.alt; issState.vel = fix.vel;
+  issState.ready = true;
+  issMesh.visible = true;
+  // satellite direction in the rigid Earth frame (spin inside, tilt outside)
+  const satDir = unitVector(issState.lat, issState.lon)
+    .applyQuaternion(earthTilt.quaternion)
+    .applyQuaternion(earthAxial.quaternion);
+  issVisibility = satDir.dot(sunDirUniform.value) > 0 ? 'daylight' : 'night';
+  return true;
+}
+
+let sgp4TilesAt = 0;
+let sgp4Broke = false;
+function sgp4Tick() {   // wall-clock driven; runs via setInterval (works in background tabs)
+  try {
+    const nowMs = Date.now();
+    if (tleState.fetchedAt && nowMs - tleState.fetchedAt > TLE_MAX_AGE_MS) loadTle(true); // async
+    if (nowMs - sgp4LastFix < SGP4_TICK_MS) return;
+    sgp4LastFix = nowMs;
+    if (!sgp4Fix(nowMs)) return;
+    const R = EARTH_R + (issState.alt / EARTH_KM) * EARTH_R;
+    const p = unitVector(issState.lat, issState.lon).multiplyScalar(R);
+    issMesh.position.copy(p);
+    issGlow.position.copy(p);
+    if (nowMs - sgp4TrackAt > SGP4_TRACK_MS) { sgp4TrackAt = nowMs; rebuildIssTrack(); }
+    // refresh the ISS tiles + advisories at ~2 Hz while in SGP4 mode
+    if (nowMs - sgp4TilesAt > 500) {
+      sgp4TilesAt = nowMs;
+      renderIssTiles();
+    }
+  } catch (err) {
+    // never let a propagation fault kill the app: drop to the
+    // telemetry-anchor mode and show what actually went wrong
+    sgp4Broke = true;
+    tleState.satrec = null;                    // falls back to anchor mode
+    setPill('pillIss', 'bad', 'ISS SGP4 fault: ' + err.message);
+    console.error('sgp4Tick failed:', err);
+  }
+}
+
+function renderIssTiles() {
+  if (!issState.ready) return;
+  setTile('tIssAlt', issState.alt.toFixed(1) + '<small>km</small>', 'tIssBar',
+    (issState.alt - 390) / 60);
+  document.getElementById('tIssPos').textContent = fmtLatLon(issState.lat, issState.lon);
+  setTile('tIssVel', Math.round(issState.vel).toLocaleString() + '<small>km/h</small>', 'tVelBar',
+    (issState.vel - 27000) / 1500);
+  const footKm = 2 * EARTH_KM * Math.acos(Math.min(1, EARTH_KM / (EARTH_KM + issState.alt)));
+  document.getElementById('tIssVis').textContent =
+    issVisibility + ' · footprint ' + Math.round(footKm).toLocaleString() + ' km' +
+    (sgp4Active() ? ' · SGP4' : ' · TLE anchor');
+  deriveAlertsFrom(issState.ready ? { ...issState, visibility: issVisibility } : null, observed);
+  renderTicker();
+}
+
+/* ============================================================
+   OTHER PLANETS — lit by the same single sun
+   ============================================================ */
+const [jupTex, satTex, marsTex, nepTex, ringTex] = await Promise.all([
+  loadTex(PLANET_TEX + '2k_jupiter.jpg'),
+  loadTex(PLANET_TEX + '2k_saturn.jpg'),
+  loadTex(PLANET_TEX + '2k_mars.jpg'),
+  loadTex(PLANET_TEX + '2k_neptune.jpg'),
+  loadTex(PLANET_TEX + '2k_saturn_ring_alpha.png')
+]);
+
+function makePlanet(tex, radius, pos, fallback) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 64),
+    new THREE.MeshPhongMaterial({ map: tex, color: tex ? 0xffffff : fallback, shininess: 6 }));
+  m.position.copy(pos); m.rotation.z = 0.12;
+  scene.add(m); return m;
+}
+const jupiter = makePlanet(jupTex, 3.2, new THREE.Vector3(-30, -6, -34), 0xd8b08c);
+const saturn  = makePlanet(satTex,  2.6, new THREE.Vector3(28, 7, -38), 0xe3cf9f);
+const mars    = makePlanet(marsTex, 1.5, new THREE.Vector3(-22, -9, 26), 0xc1440e);
+const neptune = makePlanet(nepTex,  2.2, new THREE.Vector3(32, -10, 22), 0x3f66d4);
+
+// Name labels for the other bodies
+function addBodyLabel(text, position, up = 1.2) {
+  const label = makeLabel(text, '#bcd6f5');
+  label.position.copy(position).add(new THREE.Vector3(0, up, 0));
+  label.scale.set(2.6, 0.65, 1);
+  scene.add(label);
+}
+addBodyLabel('Jupiter', jupiter.position, 4.6);
+addBodyLabel('Saturn', saturn.position, 4.4);
+addBodyLabel('Mars', mars.position, 2.6);
+addBodyLabel('Neptune', neptune.position, 3.4);
+// Sun and Moon labels ride on their meshes — the Sun's scene position tracks
+// its real solar longitude, so a fixed label would drift off it.
+{ const sl = makeLabel('Sun', '#ffe9b3'); sl.position.set(0, 1.9, 0); sunMesh.add(sl); }
+{ const ml = makeLabel('Moon', '#bcd6f5'); ml.position.set(0, 1.3, 0); ml.scale.set(1.8, 0.45, 1); moon.add(ml); }
+
+// Saturn's ring: radial UVs so the alpha strip maps around the annulus
+{
+  const inner = 3.6, outer = 5.6;
+  const geo = new THREE.RingGeometry(inner, outer, 160, 1);
+  const pos = geo.attributes.position, uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    const r = Math.hypot(pos.getX(i), pos.getY(i));
+    uv.setXY(i, (r - inner) / (outer - inner), 0.5);
+  }
+  uv.needsUpdate = true;
+  const ring = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    map: ringTex, color: ringTex ? 0xffffff : 0xcbb98a,
+    transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false }));
+  ring.rotation.x = Math.PI / 2.35;
+  saturn.add(ring);
+}
+
+/* ============================================================
+   PORTS + ANIMATED SHIPPING LANES
+   ============================================================ */
+const SURFACE_R = EARTH_R + 0.10;
+const ports = [
+  { name: 'Shanghai',    lat: 31.2,  lon: 121.5 },
+  { name: 'Rotterdam',   lat: 51.9,  lon: 4.5 },
+  { name: 'Los Angeles', lat: 34.0,  lon: -118.2 },
+  { name: 'Singapore',   lat: 1.3,   lon: 103.8 },
+  { name: 'Dubai',       lat: 25.2,  lon: 55.3 },
+  { name: 'Sydney',      lat: -33.9, lon: 151.2 },
+  { name: 'Hamburg',     lat: 53.6,  lon: 10.0 },
+  { name: 'Sao Paulo',   lat: -23.5, lon: -46.6 },
+  { name: 'New York',    lat: 40.7,  lon: -74.0 },
+  { name: 'Mumbai',      lat: 19.1,  lon: 72.9 },
+  { name: 'Cape Town',   lat: -33.9, lon: 18.4 },
+  { name: 'Tokyo',       lat: 35.7,  lon: 139.7 },
+  { name: 'Lagos',       lat: 6.45,  lon: 3.39,  ng: true },
+  { name: 'Port Harcourt', lat: 4.77, lon: 7.01, ng: true }
+];
+
+function unitVector(lat, lon) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(-Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta));
+}
+
+// Great-circle lane lifted into a floating arc
+function arcCurve(a, b, surfaceR, lift) {
+  const va = unitVector(a.lat, a.lon), vb = unitVector(b.lat, b.lon);
+  const angle = Math.acos(Math.min(1, Math.max(-1, va.dot(vb))));
+  const axis = new THREE.Vector3().crossVectors(va, vb);
+  if (axis.lengthSq() < 1e-8) axis.set(0, 1, 0); else axis.normalize();
+  const pts = [], seg = 64, p = new THREE.Vector3();
+  for (let i = 0; i <= seg; i++) {
+    const t = i / seg;
+    p.copy(va).applyAxisAngle(axis, angle * t).normalize();
+    pts.push(p.clone().multiplyScalar(surfaceR * (1 + lift * Math.sin(Math.PI * t))));
+  }
+  return new THREE.CatmullRomCurve3(pts);
+}
+
+const routeGroup = new THREE.Group(); earthTilt.add(routeGroup);
+const lanes = [];
+const routeColors = [0x38bdf8, 0x4ade80, 0xf472b6, 0xfbbf24, 0xa78bfa, 0xfb923c];
+
+const markerGeo = new THREE.SphereGeometry(0.055, 12, 12);
+const portHaloTex = radialTexture(['rgba(255,255,255,1)', 'rgba(125,211,252,0.4)', 'rgba(125,211,252,0)']);
+ports.forEach(p => {
+  const pos = unitVector(p.lat, p.lon).multiplyScalar(EARTH_R + 0.075);
+  const ngColor = 0x4ade80;
+  const c = p.ng ? ngColor : 0x7dd3fc;
+  const marker = new THREE.Mesh(markerGeo, new THREE.MeshBasicMaterial({ color: c }));
+  marker.scale.setScalar(p.ng ? 1.5 : 1);
+  marker.position.copy(pos); routeGroup.add(marker);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: portHaloTex, color: c,
+    transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending }));
+  halo.scale.set(p.ng ? 0.6 : 0.45, p.ng ? 0.6 : 0.45, 1); halo.position.copy(pos);
+  routeGroup.add(halo);
+});
+
+// Port-city labels (canvas sprites, Nigeria highlighted)
+const labelGroup = new THREE.Group(); earthTilt.add(labelGroup);
+function makeLabel(text, color = '#dbe7f7') {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 128;
+  const g = c.getContext('2d');
+  g.font = 'bold 46px Segoe UI';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.shadowColor = 'rgba(0,0,0,0.9)'; g.shadowBlur = 8;
+  g.fillStyle = color;
+  g.fillText(text, 256, 64);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  sprite.scale.set(1.9, 0.48, 1);
+  return sprite;
+}
+ports.forEach(p => {
+  const label = makeLabel(p.name + (p.ng ? ' [NG]' : ''), p.ng ? '#4ade80' : '#cfe4ff');
+  // nudge adjacent-port labels apart so they don't collide
+  const labelLat =
+    p.name === 'Lagos' ? p.lat + 7 :
+    p.name === 'Port Harcourt' ? p.lat - 9 :
+    p.name === 'Hamburg' ? p.lat + 7 :
+    p.name === 'Rotterdam' ? p.lat - 5 : p.lat;
+  label.position.copy(unitVector(labelLat, p.lon).multiplyScalar(EARTH_R + 0.42));
+  labelGroup.add(label);
+});
+
+const shipGlowTex = radialTexture(['rgba(255,255,255,1)', 'rgba(255,255,255,0.35)', 'rgba(255,255,255,0)']);
+// Hand-traced REAL major sea lanes (each waypoint is [longitude, latitude])
+const SEA_ROUTES = [
+  { name: 'Asia–Europe · Suez', color: 0x38bdf8, pts: [
+    [121.5,31.2],[114,21],[108,12],[103.8,1.3],[95,4],[80,0],[75,9],[62,13],[50,13],[43,12],
+    [39,19],[35,25],[32.6,29.8],[32.3,31.3],[29,33],[15,36],[2,39],[-5.6,35.9],[-12,44],[-9,50],[-2,50.6],[4.5,51.9]
+  ]},
+  { name: 'Asia–Europe · Cape of Good Hope', color: 0xf472b6, pts: [
+    [121.5,31.2],[114,21],[109,12],[103.8,1.3],[98,8],[88,4],[77,-2],[72,-14],[60,-25],[45,-33],
+    [20,-35.5],[8,-35],[-8,-32],[-18,-22],[-25,-8],[-24,2],[-18,15],[-11,30],[-5.6,35.9],[-10,45],[-3,50],[4.5,51.9]
+  ]},
+  { name: 'Transpacific', color: 0xfbbf24, pts: [
+    [121.5,31.2],[131,30],[142,34],[152,38],[165,41],[178,44],[-172,45],[-158,42],[-143,39],[-131,36],[-122,34.6],[-118.2,34]
+  ]},
+  { name: 'Panama Canal · Pacific→Atlantic', color: 0x4ade80, pts: [
+    [-118.2,34],[-111,23],[-104,17],[-96,12.5],[-90,14],[-83,12],[-80,9.8],[-77.5,8.5],[-75,12],[-72,18],[-70,26],[-74,37],[-74,40.7]
+  ]},
+  { name: 'North Atlantic Run', color: 0xa78bfa, pts: [
+    [-74,40.7],[-66,41],[-56,40],[-45,42],[-31,44],[-19,47],[-10,50],[-4,50.4],[4.5,51.9]
+  ]},
+  { name: 'Brazil ↔ Atlantic', color: 0xfb923c, pts: [
+    [4.5,51.9],[-2,50.5],[-9,45],[-15,33],[-22,20],[-30,4],[-36,-10],[-40.5,-19],[-46.6,-23.5]
+  ]},
+  { name: 'West Africa · Nigeria–Europe', color: 0x34d399, pts: [
+    [3.4,6.5],[-1,3],[-7,3],[-12,9],[-15,17],[-16,25],[-14,33],[-9,36.5],[-5.5,35.9],[-3,49.5],[4.5,51.9]
+  ]},
+  { name: 'Asia ↔ Australia', color: 0xef4444, pts: [
+    [103.8,1.3],[106,-4],[112,-6],[122,-12],[133,-16],[144,-24],[150,-26],[151.5,-31],[151.2,-33.9]
+  ]},
+  { name: 'Middle East · Gulf–Asia', color: 0x60a5fa, pts: [
+    [55.3,25.2],[58,23],[61,19],[65,12],[72,4],[79,2],[88,4],[95,6],[103.8,1.3]
+  ]}
+];
+// Real sea lane along its traced waypoints. Catmull-Rom interpolates chords in
+// 3-D and can dip INSIDE the sphere between distant waypoints, so the smoothed
+// polyline is resampled and re-projected back onto the globe radius.
+function addSeaRoute(def) {
+  const positions = def.pts.map(([lon, lat]) => {
+    const v = unitVector(lat, lon).multiplyScalar(SURFACE_R + 0.05);
+    return v;
+  });
+  const rough = new THREE.CatmullRomCurve3(positions, false, 'centripetal', 0.5);
+  const onSphere = rough.getPoints(240).map(p => p.clone().setLength(SURFACE_R + 0.05));
+  const curve = new THREE.CatmullRomCurve3(onSphere, false, 'centripetal', 0.5);
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 220, 0.011, 6, false),
+    new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: 0.95 }));
+  routeGroup.add(tube);
+
+  const flow = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(220)),
+    new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.12, gapSize: 0.3, transparent: true, opacity: 0.7 }));
+  flow.computeLineDistances();
+  routeGroup.add(flow);
+
+  // No decorative marker is animated along the lane. A moving dot here would
+  // read as a ship position it cannot actually justify; real vessels are
+  // plotted from AIS instead (see buildVesselLayer).
+  lanes.push({ tube, flow, name: def.name, color: def.color });
+}
+SEA_ROUTES.forEach(addSeaRoute);
+
+let planned = null;
+function plotRoute(a, b) {
+  if (planned) { routeGroup.remove(planned.tube); routeGroup.remove(planned.pulse); }
+  // Lift kept small (2% of the radius) so the drawn path stays essentially the
+  // great circle the distance below is computed on — a tall decorative arc
+  // would make the animated pulse visibly longer than the stated kilometres.
+  const curve = arcCurve(a, b, SURFACE_R + 0.02, 0.02);
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 140, 0.016, 6, false),
+    new THREE.MeshBasicMaterial({ color: 0xff4d6d, transparent: true, opacity: 0.98 }));
+  routeGroup.add(tube);
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0xffe3e8 }));
+  routeGroup.add(pulse);
+  planned = { tube, curve, pulse, t: 0 };
+
+  const km = Math.round(unitVector(a.lat, a.lon).angleTo(unitVector(b.lat, b.lon)) * EARTH_KM);
+  const days = km / 756;   // 17 kn × 1.852 km/h × 24 h = 755.6 km/day
+  document.getElementById('planOut').innerHTML =
+    `<b>${a.name} &rarr; ${b.name}</b><br>` +
+    `Great-circle distance &asymp; <b>${km.toLocaleString()} km</b><br>` +
+    `ETA &asymp; <b>${days.toFixed(1)} days</b> at 17 knots (756 km/day)` +
+    `<div class="risk" style="color:#9dc7ff">Geometry only — real transits follow the traced lanes, canal transits and weather routing.</div>`;
+}
+
+/* ============================================================
+   DASHBOARD UI
+   ============================================================ */
+/* ============================================================
+   LIVE VESSELS — real AIS positions via /api/vessels
+   If the feed is unconfigured or down, the panel says so plainly
+   and the globe shows lane geometry only, with no invented markers.
+   ============================================================ */
+const AIS_ENDPOINT = '/api/vessels';
+const VESSEL_POOL = 150;
+const AIS_POLL_MS = 60000;
+
+let liveVessels = [];
+let issVisibility = 'unknown';
+// Live port observations, keyed by port so repeated refreshes UPDATE entries
+// instead of appending duplicates (alerts and the ticker iterate over this).
+let observed = new Map();
+let aisState = { configured: null, lastOk: 0, message: '' };
+const vesselMeshes = [];
+
+function vesselColor(v) {
+  const t = v.type;
+  if (t == null) return 0x9fb6d4;              // no AIS type reported
+  if (t >= 70 && t < 80) return 0x4ade80;       // cargo
+  if (t >= 80 && t < 90) return 0x38bdf8;       // tanker
+  if (t >= 60 && t < 70) return 0xfbbf24;       // passenger
+  if (t >= 50 && t < 60) return 0xfb923c;       // tug / service
+  return 0xc4b5fd;                              // other
+}
+
+function vesselLabel(v) {
+  return (v.name && v.name !== 'UNKNOWN') ? v.name : `MMSI ${v.mmsi}`;
+}
+
+function buildVesselLayer(n) {
+  while (vesselMeshes.length < Math.min(n, VESSEL_POOL)) {
+    const g = new THREE.Group();
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.038, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: shipGlowTex, color: 0xffffff, transparent: true,
+      opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.scale.set(0.34, 0.34, 1);
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.075, 6),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    arrow.position.y = 0.055;
+    g.add(dot, glow, arrow);
+    g.visible = false;
+    earthTilt.add(g);
+    vesselMeshes.push({ group: g, dot, glow, arrow });
+  }
+}
+
+function updateVesselPositions(list) {
+  buildVesselLayer(list.length);
+  const up = new THREE.Vector3(0, 1, 0);
+  vesselMeshes.forEach((m, i) => {
+    const v = list[i];
+    if (!v) { m.group.visible = false; return; }
+    m.group.position.copy(unitVector(v.lat, v.lon).multiplyScalar(SURFACE_R + 0.02));
+    m.group.visible = true;
+    const c = vesselColor(v);
+    m.dot.material.color.setHex(c);
+    m.glow.material.color.setHex(c);
+    m.arrow.material.color.setHex(c);
+    // orient the cone along the vessel's reported course, computed as the
+    // true initial bearing to a point ~2 km ahead on the great circle —
+    // equal lat/lon offsets would skew the needle by ~1/cos(lat) at high latitudes
+    if (v.course != null && isFinite(v.course)) {
+      const C = v.course * Math.PI / 180;
+      const dRad = 2 / EARTH_KM;                     // 2 km ahead, in radians
+      const l1 = v.lat * Math.PI / 180, o1 = v.lon * Math.PI / 180;
+      const lat2 = Math.asin(Math.sin(l1) * Math.cos(dRad)
+                 + Math.cos(l1) * Math.sin(dRad) * Math.cos(C));
+      const lon2 = o1 + Math.atan2(
+        Math.sin(C) * Math.sin(dRad) * Math.cos(l1),
+        Math.cos(dRad) - Math.sin(l1) * Math.sin(lat2));
+      const ahead = unitVector(lat2 * 180 / Math.PI, lon2 * 180 / Math.PI)
+        .multiplyScalar(SURFACE_R + 0.02);
+      m.arrow.quaternion.setFromUnitVectors(up, ahead.sub(m.group.position).normalize());
+    }
+  });
+}
+
+function renderVesselList(list) {
+  const el = document.getElementById('shipList');
+  const count = document.getElementById('shipCount');
+  if (!list.length) {
+    el.innerHTML = '<div class="alert info"><div class="ico">i</div><div class="txt">' +
+      (aisState.message || 'No live AIS positions available.') +
+      '<span class="meta">lane geometry is real; vessel marks need a configured feed</span>' +
+      '</div></div>';
+    count.textContent = 'no live feed';
+    return;
+  }
+  const now = Date.now() / 1000;
+  el.innerHTML = list.map((v, i) => {
+    const kn = v.speedKn;
+    const tag = kn > 14 ? 'ok' : (kn != null && kn > 0 ? 'info' : 'warn');
+    const tagTxt = kn > 14 ? 'Underway' : (kn != null && kn > 0 ? 'Slow' : 'Moored');
+    const age = v.timestamp ? Math.max(0, Math.round(now - v.timestamp)) : null;
+    const ageTxt = age == null ? 'position age unknown'
+      : (age < 90 ? 'position current' : 'position ' + Math.round(age / 60) + ' min old');
+    return `
+    <div class="ship" data-vessel="${i}">
+      <div class="top">
+        <span class="tag ${tag}">${tagTxt}</span>
+        <span class="name">${esc(vesselLabel(v))}</span>
+        <span class="eta">${kn != null ? kn.toFixed(1) + ' kn' : 'no AIS'}</span>
+      </div>
+      <div class="lane">${fmtLatLon(v.lat, v.lon)} · MMSI ${esc(String(v.mmsi))}</div>
+      <div class="prog ${tag}"><i style="width:${kn != null ? Math.min(100, kn / 25 * 100) : 0}%"></i></div>
+      <div class="eta">${ageTxt}</div>
+    </div>`;
+  }).join('');
+  count.textContent = list.length + ' live · ' + new Date().toISOString().slice(11, 16) + ' UTC';
+}
+
+async function loadVessels() {
+  try {
+    const r = await fetch(AIS_ENDPOINT, { cache: 'no-store' });
+    const data = await r.json();
+    aisState.configured = data.configured;
+    aisState.message = data.message || data.error || '';
+
+    if (!data.configured) {
+      liveVessels = [];
+      aisState.message = 'Live AIS not configured on this deployment';
+      setPill('pillAis', 'warn', 'AIS not configured');
+    } else if (!Array.isArray(data.vessels) || !data.vessels.length) {
+      liveVessels = [];
+      aisState.message = data.error ? 'AIS feed error: ' + data.error
+        : 'AIS feed returned no positions';
+      setPill('pillAis', 'warn', 'AIS no positions');
+    } else {
+      liveVessels = data.vessels;
+      aisState.lastOk = Date.now();
+      aisState.message = '';
+      setPill('pillAis', 'ok', 'AIS live · ' + data.vessels.length);
+    }
+    updateVesselPositions(liveVessels);
+    renderVesselList(liveVessels);
+  } catch (err) {
+    liveVessels = [];
+    aisState.message = 'Could not reach the AIS proxy (/api/vessels)';
+    setPill('pillAis', 'bad', 'AIS offline');
+    updateVesselPositions([]);
+    renderVesselList([]);
+  }
+}
+
+document.getElementById('shipList').addEventListener('click', e => {
+  const row = e.target.closest('[data-vessel]');
+  if (!row) return;
+  const v = liveVessels[Number(row.dataset.vessel)];
+  if (!v) return;
+  document.querySelectorAll('#shipList .ship').forEach(x => x.style.background = '');
+  row.style.background = 'rgba(77,163,255,.10)';
+  const focusPt = unitVector(v.lat, v.lon).multiplyScalar(SURFACE_R);
+  camTween = {
+    t: 0,
+    fromPos: camera.position.clone(),
+    fromTg: controls.target.clone(),
+    toPos: unitVector(v.lat, v.lon).multiplyScalar(EARTH_R * 3.0),
+    toTg: earthTilt.localToWorld(focusPt.clone()),
+  };
+});
+
+loadVessels();
+setInterval(loadVessels, AIS_POLL_MS);
+
+/* Alerts are derived from live conditions (ISS pass, weather, sea state).
+   Nothing here is a canned string with a fictional timestamp. */
+const alerts = [];
+function pushAlert(level, icon, text, meta) { alerts.push([level, icon, text, meta]); }
+function renderAlerts() {
+  const list = document.getElementById('alertList');
+  if (!alerts.length) {
+    list.innerHTML = '<div class="alert info"><div class="ico">i</div>' +
+      '<div class="txt">No advisories from monitored sources<span class="meta">checked just now</span></div></div>';
+  } else {
+    list.innerHTML = alerts.map(a =>
+      `<div class="alert ${a[0]}"><div class="ico">${a[1]}</div><div class="txt">${a[2]}<span class="meta">${a[3]}</span></div></div>`).join('');
+  }
+  document.getElementById('alertCount').textContent = alerts.length + ' open';
+  setPill('pillAdvisories', alerts.some(a => a[0] === 'bad') ? 'bad'
+    : (alerts.some(a => a[0] === 'warn') ? 'warn' : 'ok'),
+    alerts.length + (alerts.length === 1 ? ' advisory' : ' advisories'));
+}
+
+function setPill(id, state, text) {
+  const pill = document.getElementById(id);
+  if (!pill) return;
+  const dot = pill.querySelector('.dot');
+  dot.className = 'dot' + (state === 'ok' ? '' : ' ' + state);
+  pill.querySelector('span').textContent = text;
+}
+
+function deriveAlertsFrom(iss, ports) {
+  alerts.length = 0;
+  if (iss) {
+    pushAlert('info', 'i', `ISS at ${fmtLatLon(iss.lat, iss.lon)}`,
+      `${esc(iss.visibility || '')} · ${Math.round(iss.alt)} km · ${Math.round(iss.vel).toLocaleString()} km/h`);
+  }
+  for (const p of ports.values()) {
+    if (p.wave != null && p.wave >= 2.5) {
+      pushAlert('bad', '!', `Rough sea off ${esc(p.key)}`,
+        `wave ${p.wave.toFixed(1)} m · modeled ${p.observedAt}`);
+    } else if (p.wind >= 17) {
+      pushAlert('warn', '!', `Strong wind at ${esc(p.key)}`,
+        `${p.wind.toFixed(1)} m/s · model analysis ${p.observedAt}`);
+    }
+    if (p.precip != null && p.precip >= 10) {
+      pushAlert('warn', '!', `Heavy precipitation at ${esc(p.key)}`,
+        `${p.precip.toFixed(1)} mm/h · model analysis ${p.observedAt}`);
+    }
+  }
+  renderAlerts();
+}
+
+const legend = SEA_ROUTES.map((r, i) => {
+  const c = '#' + r.color.toString(16).padStart(6, '0');
+  return `<div class="lane" data-lane="${i}" role="button" title="Click to isolate this lane"><i class="swatch" style="background:${c};color:${c}"></i><span class="lbl">${r.name}</span><button class="isolate" data-iso="${i}">isolate</button></div>`;
+}).join('');
+document.getElementById('legendList').innerHTML = legend;
+document.getElementById('laneCount').textContent = SEA_ROUTES.length;
+
+let isolated = null;
+function setIsolate(idx) {
+  isolated = (isolated === idx) ? null : idx;
+  lanes.forEach((lane, i) => {
+    const on = isolated === null || i === isolated;
+    lane.tube.material.opacity = isolated === null ? 0.95 : (on ? 1 : 0.045);
+    lane.flow.material.opacity = isolated === null ? 0.7 : (on ? 0.95 : 0.03);
+  });
+  document.querySelectorAll('#legendList .lane').forEach((el, i) => {
+    el.classList.toggle('isolated', i === isolated);
+    el.classList.toggle('dimmed', isolated !== null && i !== isolated);
+    el.querySelector('.isolate').textContent = i === isolated ? 'show all' : 'isolate';
+  });
+}
+document.querySelectorAll('#legendList .lane').forEach((el, i) => {
+  el.onclick = () => setIsolate(i);
+});
+
+// Focus-camera select (and follow) — orbit controls target follows the body
+const focusGetters = {
+  earth:   () => earthPivot.position.clone(),
+  moon:    () => moon.getWorldPosition(new THREE.Vector3()),
+  jupiter: () => jupiter.position.clone(),
+  saturn:  () => saturn.position.clone(),
+  mars:    () => mars.position.clone(),
+  neptune: () => neptune.position.clone(),
+  sun:     () => sunMesh.position.clone()
+};
+const focusDist = { earth: 15, moon: 5.2, jupiter: 14, saturn: 17, mars: 7, neptune: 11, sun: 34 };
+let activeFocus = null;
+let camTween = null;
+const ease = k => k < .5 ? 2*k*k : -1 + (4 - 2*k) * k;
+document.getElementById('focusSel').onchange = (e) => {
+  const key = e.target.value;
+  activeFocus = key === 'free' ? null : focusGetters[key];
+  controls.autoRotate = key === 'free' || !activeFocus;
+  if (activeFocus) {
+    const endTg = activeFocus();
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    camTween = { t: 0, fromPos: camera.position.clone(), fromTg: controls.target.clone(),
+                 toTg: endTg.clone(), toPos: endTg.clone().add(dir.multiplyScalar(focusDist[key])) };
+  }
+};
+
+// layer toggles
+const $layer = id => document.getElementById(id);
+$layer('lyClouds').onchange = e => clouds.visible = e.target.checked;
+$layer('lyLights').onchange = e => nightToggleUniform.value = e.target.checked ? 1 : 0;
+$layer('lyLanes').onchange  = e => routeGroup.visible = e.target.checked;
+$layer('lyLabels').onchange = e => labelGroup.visible = e.target.checked;
+$layer('lyISS').onchange    = e => issGroup.visible = e.target.checked;
+$layer('lyMoon').onchange   = e => moonOrbit.visible = e.target.checked;
+$layer('lyReal').onchange   = e => realTimeOn = e.target.checked;
+
+// About overlay
+document.getElementById('aboutBtn').onclick = () => document.getElementById('about').style.display = 'grid';
+document.getElementById('about').addEventListener('click', e => {
+  if (e.target.id === 'about') e.currentTarget.style.display = 'none';
+});
+addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('about').style.display = 'none';
+});
+// ---------- PWA ----------
+const installBtn = document.getElementById('installBtn');
+let deferredPrompt = null;
+
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  installBtn.hidden = false;
+});
+
+installBtn.addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  installBtn.hidden = true;
+});
+
+addEventListener('appinstalled', () => {
+  deferredPrompt = null;
+  installBtn.hidden = true;
+});
+
+/* The ticker carries observations we actually hold, stamped with their real
+   analysis time. It is not a stream of invented shipping events. */
+function renderTicker() {
+  const items = [];
+  if (issState.ready) {
+    items.push(`<span><b>ISS 25544</b> — ${fmtLatLon(issState.lat, issState.lon)}, ${Math.round(issState.alt)} km, ${esc(issVisibility.toLowerCase())}</span>`);
+  }
+  for (const p of observed.values()) {
+    items.push(`<span><b>${esc(p.key)}</b> — ${p.temp != null ? p.temp.toFixed(1) + ' °C' : 'temp n/a'}, wind ${p.wind.toFixed(1)} m/s${p.wave != null ? `, sea ${p.wave.toFixed(1)} m` : ''} · analysis ${esc(p.observedAt)}</span>`);
+  }
+  if (!items.length) {
+    items.push('<span><b>Live feed</b> — waiting for first observation…</span>');
+  }
+  const html = items.join('');
+  document.getElementById('tickerTrack').innerHTML = html + html;  // duplicated for seamless loop
+}
+renderTicker();
+
+const selFrom = document.getElementById('origin');
+const selTo = document.getElementById('dest');
+ports.forEach((p, i) => { selFrom.add(new Option(p.name, i)); selTo.add(new Option(p.name, i)); });
+selFrom.selectedIndex = 0; selTo.selectedIndex = 1;
+document.getElementById('planBtn').onclick = () => {
+  const a = ports[+selFrom.value], b = ports[+selTo.value];
+  if (a === b) { document.getElementById('planOut').textContent = 'Pick two different ports.'; return; }
+  plotRoute(a, b);
+};
+document.getElementById('swapBtn').onclick = () => {
+  const tmp = selFrom.value; selFrom.value = selTo.value; selTo.value = tmp;
+  document.getElementById('planBtn').click();
+};
+
+// UTC clock
+function tickClock() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  document.getElementById('clock').textContent = `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())} UTC`;
+}
+tickClock(); setInterval(tickClock, 1000);
+
+/* ============================================================
+   LIVE DATA — every value below comes from a real source.
+   No simulated or randomly drifting telemetry.
+     ISS      : wheretheiss.at (public, no key)
+     Weather  : Open-Meteo forecast + marine (public, no key)
+   If a source fails the tile shows "unavailable" rather than
+   inventing a plausible number.
+   ============================================================ */
+const METEO = 'https://api.open-meteo.com/v1/forecast';
+const MARINE = 'https://marine-api.open-meteo.com/v1/marine';
+
+function setTile(id, html, barId, frac) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = html;
+  if (barId) {
+    document.getElementById(barId).style.width =
+      (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + '%';
+  }
+}
+function failTile(valId, srcId, barId, label) {
+  setTile(valId, '--', barId, 0);
+  const src = document.getElementById(srcId);
+  if (src) { src.textContent = label; src.classList.add('err'); }
+}
+const fmtLatLon = (lat, lon) =>
+  `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
+
+// Escape anything that arrives from a feed (AIS ship names are attacker-
+// controlled in principle) before it can reach an innerHTML sink.
+function esc(s) {
+  return String(s).replace(/[&<>"']/g,
+    c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+
+// ---- ISS (NORAD 25544). Primary: client-side SGP4 from a fetched TLE.
+// Fallback (no TLE library/feed): wheretheiss.at SGP4 anchor every 15 s.
+async function loadISS() {
+  if (sgp4Active()) {
+    // Cross-check only: if the propagated fix ever drifts far from the
+    // provider's own SGP4 output, refresh the TLE. The provider stays purely
+    // optional in this mode — no tiles are written from it while SGP4 runs.
+    if (Date.now() - issCrossAt < 300e3) return;
+    issCrossAt = Date.now();
+    try {
+      const r = await fetch('https://api.wheretheiss.at/v1/satellites/25544', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      const cosLat = Math.cos(issState.lat * Math.PI / 180);
+      const drift = Math.hypot((d.latitude - issState.lat) * 111,
+                               (d.longitude - issState.lon) * 111 * cosLat,
+                               d.altitude - issState.alt);
+      if (drift > 25) await loadTle(true);          // stale TLE: re-pull element set
+    } catch (err) {
+      /* provider optional here; continue propagating locally */
+    }
+    return;
+  }
+
+  try {
+    const r = await fetch('https://api.wheretheiss.at/v1/satellites/25544', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    setTile('tIssAlt', d.altitude.toFixed(1) + '<small>km</small>', 'tIssBar',
+      (d.altitude - 390) / 60);                       // 390-450 km band, where 25544 actually flies
+    document.getElementById('tIssPos').textContent = fmtLatLon(d.latitude, d.longitude);
+    setTile('tIssVel', Math.round(d.velocity).toLocaleString() + '<small>km/h</small>', 'tVelBar',
+      (d.velocity - 27000) / 1500);
+    issVisibility = d.visibility;
+    document.getElementById('tIssVis').textContent =
+      d.visibility + ' · footprint ' + Math.round(d.footprint).toLocaleString() + ' km' +
+      ' · anchor-path';
+    // update the anchor first, then rebuild advisories from the fresh fix —
+    // the ISS row refreshes on the 15-s cycle instead of only on the 10-min
+    // weather cycle
+    setIssFromTelemetry(d);
+    deriveAlertsFrom(issState.ready ? { ...issState, visibility: issVisibility } : null, observed);
+    setPill('pillIss', 'ok', 'ISS live · TLE anchor');
+    if (typeof renderTicker === 'function') renderTicker();
+  } catch (err) {
+    failTile('tIssAlt', 'tIssPos', 'tIssBar', 'ISS telemetry unavailable');
+    failTile('tIssVel', 'tIssVis', 'tVelBar', '');
+    setPill('pillIss', 'bad', 'ISS offline');
+  }
+}
+
+// ---- Port weather (Open-Meteo model analysis, not station observations) ----
+async function loadPortWeather() {
+  const ports = [
+    { key: 'Lagos',     lat: 6.4500, lon: 3.4000, tId: 'tLagosT', wId: 'tLagosW', bar: 'tLagosBar', marine: false },
+    // Marine fields come from a sea gridpoint 30 km off the coast; the city
+    // point itself is land and the wave model carries no value there.
+    { key: 'Rotterdam', lat: 51.9500, lon: 4.1400, tId: 'tRotT', wId: 'tRotW', bar: 'tRotBar',
+      marine: true, marineLat: 51.9800, marineLon: 2.4400 },
+  ];
+  await Promise.all(ports.map(async p => {
+    try {
+      const url = `${METEO}?latitude=${p.lat}&longitude=${p.lon}` +
+        '&current=temperature_2m,wind_speed_10m,precipitation&wind_speed_unit=ms';
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const c = (await r.json()).current;
+      setTile(p.tId, `${c.temperature_2m.toFixed(1)}<small>°C</small>`, p.bar,
+        (c.temperature_2m + 10) / 50);
+      const w = document.getElementById(p.wId);
+      const hhmm = c.time.slice(11, 16);
+      w.textContent = `wind ${c.wind_speed_10m.toFixed(1)} m/s · ${hhmm} UTC`;
+      let wave = null;
+      if (p.marine) {
+        const mr = await fetch(`${MARINE}?latitude=${p.marineLat}&longitude=${p.marineLon}` +
+          '&current=wave_height', { cache: 'no-store' });
+        if (mr.ok) {
+          wave = (await mr.json()).current.wave_height;
+          if (wave != null) setTile('tSea', wave.toFixed(2) + '<small>m</small>', 'tSeaBar', wave / 4);
+          document.getElementById('tSeaSwell').textContent =
+            `North Sea off ${p.key} · analysis`;
+        }
+      }
+      // UPSERT, keyed by port: repeat refreshes overwrite instead of growing
+      // the log without bound (alerts and the ticker iterate over this map).
+      observed.set(p.key, { key: p.key, temp: c.temperature_2m, wind: c.wind_speed_10m,
+        precip: c.precipitation, wave, observedAt: `${hhmm} UTC` });
+      setPill('pillWx', 'ok', 'Weather live');
+    } catch (err) {
+      failTile(p.tId, p.wId, p.bar, `${p.key} weather unavailable`);
+      if (p.marine) failTile('tSea', 'tSeaSwell', 'tSeaBar', 'marine model unavailable');
+      setPill('pillWx', 'bad', 'Weather offline');
+    }
+  }));
+  deriveAlertsFrom(issState.ready ? { ...issState, visibility: issVisibility } : null, observed);
+  if (typeof renderTicker === 'function') renderTicker();
+}
+
+// ---- Solar geometry from UTC: one shared source for the tile numbers AND
+// ---- the rendered terminator.
+// Sun's ecliptic longitude λ from the day of year, then:
+//   declination   δ = asin(sin λ · sin ε)            (exact spherical relation)
+//   subsolar long  = (12 − hrs − EoT/60) · 15        (apparent solar time)
+// The spin angle is SOLVED so that the analytic subsolar point, carried through
+// the scene's tilt-then-spin transform, lands exactly on the solar direction
+//   θ = −asin-longitude-term(λ) − subLon_radians
+// (verified against the June-solstice case analytically). Tiles and render
+// therefore cannot disagree.
+function solarGeometry() {
+  const d = new Date();
+  const doyFrac = (d - Date.UTC(d.getUTCFullYear(), 0, 0)) / 864e5; // Jan 1 = 1
+  const lambda = (((doyFrac - 80) * 360 / 365.2422) % 360 + 360) % 360; // ecliptic longitude deg
+  const sinL = Math.sin(lambda * Math.PI / 180);
+  const cosL = Math.cos(lambda * Math.PI / 180);
+  const decl = Math.asin(sinL * Math.sin(OBLSQ)) * 180 / Math.PI;  // exact, from geometry
+  const B = 2 * Math.PI * (Math.floor(doyFrac) - 81) / 364;
+  const eot = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B); // apparent − mean, min
+  const hrs = d.getUTCHours() + d.getUTCMinutes() / 60 + d.getUTCSeconds() / 3600;
+  const subLon = (12 - hrs - eot / 60) * 15;
+  const spinRad = -(subLon * Math.PI / 180)
+                - Math.atan2(sinL * Math.cos(OBLSQ), cosL);
+  return { decl, eot, subLon, lambda, spinRad };
+}
+
+loadISS();
+loadPortWeather();
+loadTle();                      // SGP4 element set; TLE available → SGP4 mode
+// SGP4 runs on a wall-clock interval, not rAF: it keeps propagating correctly
+// when the tab is hidden, which rAF (throttled to zero) never would.
+setInterval(() => sgp4Tick(), SGP4_TICK_MS);
+setInterval(loadISS, 15000);
+setInterval(loadPortWeather, 600000);
+
+/* ============================================================
+   ANIMATION
+   ============================================================ */
+const clock = new THREE.Clock();
+
+let fpsAcc = 0, fpsFrames = 0;
+let realTimeOn = true;
+let subsolarAt = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  // gentle hover only — no orbital drift across the starfield
+  earthPivot.position.set(0, Math.sin(t * 0.55) * 0.3, 0);
+  clouds.rotation.y += dt * 0.02;
+
+  // Moon: real sidereal rate (27.3217 d) in an ecliptic-plane orbit, tidally locked
+  const moonAngle = 2 * Math.PI * (Date.now() - 947731080000) / (27.3217 * 86400000);
+  moonOrbit.rotation.y = moonAngle;
+  moon.rotation.y = -moonAngle;
+
+  // ISS marker position advances from the SGP4 interval tick above; when the
+  // TLE feed is unavailable the decay-free orbital extrapolation below keeps
+  // the marker moving from the last telemetry fix.
+  if (issState.ready && !sgp4Active()) applyIssPosition();
+  issGlow.material.opacity = issState.ready ? 0.75 : 0;
+
+  // Real-time terminator, geographically consistent: the Sun is placed in the
+  // ecliptic (world X-Z) plane at its solar longitude λ; the planet's spin
+  // angle is solved so the analytic subsolar point (decl, subLon) from UTC is
+  // exactly the geographic point facing the Sun. Declination and longitude in
+  // the tiles and the drawn terminator now come from one shared source.
+  if (realTimeOn) {
+    const s = solarGeometry();
+    const lam = s.lambda * Math.PI / 180;
+    sunDirUniform.value.set(Math.cos(lam), 0, Math.sin(lam));
+    sunLight.position.copy(sunDirUniform.value).multiplyScalar(70);
+    sunMesh.position.copy(sunLight.position);
+    sunGlow.position.copy(sunLight.position);
+    earthTilt.rotation.y = s.spinRad;
+
+    // reflect the real subsolar point in the telemetry tile (2x/sec is plenty)
+    if (!subsolarAt || t - subsolarAt > 0.5) {
+      subsolarAt = t;
+      document.getElementById('tSub').innerHTML =
+        (s.decl >= 0 ? '+' : '−') + Math.abs(s.decl).toFixed(2) + '<small>° lat</small>';
+      document.getElementById('tSubDetail').textContent =
+        `lon ${s.subLon.toFixed(1)}° · EoT ${s.eot >= 0 ? '+' : '−'}${Math.abs(s.eot).toFixed(1)} min`;
+      document.getElementById('tSubBar').style.width = Math.abs(s.decl / 23.44) * 100 + '%';
+    }
+  }
+
+  jupiter.rotation.y += dt * 0.08;
+  saturn.rotation.y  += dt * 0.07;
+  mars.rotation.y    += dt * 0.06;
+  neptune.rotation.y += dt * 0.05;
+
+  // Live vessels are re-placed on each AIS poll, not animated between polls,
+  // so no vessel appears to move without a position report to justify it.
+  for (const m of vesselMeshes) {
+    if (m.group.visible) m.glow.material.opacity = 0.55 + 0.2 * Math.sin(t * 3);
+  }
+  if (planned) {
+    planned.t = (planned.t + dt * 0.08) % 1;
+    planned.pulse.position.copy(planned.curve.getPoint(planned.t));
+  }
+
+  sunGlow.material.opacity = 0.75 + 0.12 * Math.sin(t * 1.7);
+
+  // camera fly-to tween
+  if (camTween) {
+    camTween.t += dt / 1.3;
+    const k = ease(Math.min(1, camTween.t));
+    camera.position.lerpVectors(camTween.fromPos, camTween.toPos, k);
+    controls.target.lerpVectors(camTween.fromTg, camTween.toTg, k);
+    if (camTween.t >= 1) camTween = null;
+  }
+  // follow a tracked body (moon orbits, earth bobs)
+  if (activeFocus && !camTween) {
+    const p = activeFocus();
+    const delta = p.clone().sub(controls.target);
+    controls.target.add(delta);
+    camera.position.add(delta);
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+
+  // HUD readouts
+  fpsAcc += dt; fpsFrames++;
+  if (fpsAcc >= 0.5) {
+    document.getElementById('hudFps').textContent = Math.round(fpsFrames / fpsAcc);
+    // camera range from Earth's centre, in megametres at the true scene scale
+    document.getElementById('hudAlt').textContent =
+      (camera.position.length() * (EARTH_KM / EARTH_R) / 1000).toFixed(1);
+    document.getElementById('hudZoom').textContent = (camera.position.length() / 15.9).toFixed(2) + 'x';
+    fpsAcc = 0; fpsFrames = 0;
+  }
+}
+
+document.getElementById('hudRoutes').textContent = SEA_ROUTES.length;
+animate();
+
+/* ---------- phone drawer: one panel at a time, globe always visible ---------- */
+const mtabs = document.getElementById('mtabs');
+const leftcol = document.getElementById('leftcol');
+const rightcol = document.getElementById('rightcol');
+
+function showSheet(which) {
+  const phone = matchMedia('(max-width:820px)').matches;
+  leftcol.classList.toggle('open', phone && which === 'leftcol');
+  rightcol.classList.toggle('open', phone && which === 'rightcol');
+  mtabs.querySelectorAll('button').forEach(b => {
+    const on = b.dataset.sheet === which;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', String(on));
+  });
+  // the globe gets more room when nothing is open: pull the camera in
+  fitGlobe();
+}
+
+mtabs.addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const which = btn.dataset.sheet;
+  // Tapping the sheet that is already open collapses it, giving the globe the
+  // screen back. Tapping a different one swaps to it.
+  showSheet(which && currentSheet() === which ? '' : which);
+});
+
+/* Frame Earth inside the band the panels actually leave free.
+   The camera keeps a fixed vertical FOV, so on a tall narrow phone the
+   horizontal FOV collapses and a globe sized for a desktop window overflows.
+   Solve for the distance that fits Earth's angular radius into whichever axis
+   is tighter, with a margin so it never kisses the panel edges. */
+function fitGlobe() {
+  if (activeFocus || camTween) return;      // user is tracking something else
+
+  const phone = matchMedia('(max-width:820px)').matches;
+
+  // Desktop keeps the hand-tuned framing distance, which shows the lit limb,
+  // the city lights, and leaves room for the side panels.
+  if (!phone) {
+    const dir0 = camera.position.clone().sub(controls.target);
+    if (dir0.lengthSq() < 1e-6) dir0.set(0.5, 0.25, 1);
+    camera.position.copy(controls.target).add(dir0.normalize().multiplyScalar(16.4));
+    controls.maxDistance = 52;
+    return;
+  }
+
+  // On a phone only the gap above the drawer is free, and the horizontal FOV
+  // collapses, so solve for a distance that fits Earth into that gap.
+  const vFov = camera.fov * Math.PI / 180;
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  const visibleFraction = 0.52;
+  const fitFov = Math.min(vFov * visibleFraction, hFov);
+  const needed = (EARTH_R + 0.35) / Math.sin(Math.atan(Math.tan(fitFov / 2) / 1.5));
+
+  const dir = camera.position.clone().sub(controls.target);
+  if (dir.lengthSq() < 1e-6) dir.set(0.5, 0.25, 1);
+  dir.normalize();
+  camera.position.copy(controls.target).add(dir.multiplyScalar(needed));
+  controls.maxDistance = Math.max(52, needed * 3.2);
+}
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  showSheet(currentSheet());
+});
+
+function currentSheet() {
+  if (!matchMedia('(max-width:820px)').matches) return '';
+  if (rightcol.classList.contains('open')) return 'rightcol';
+  if (leftcol.classList.contains('open')) return 'leftcol';
+  return '';
+}
+
+showSheet(matchMedia('(max-width:820px)').matches ? 'leftcol' : '');
+</script>
+</body>
+</html>
