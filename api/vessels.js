@@ -19,7 +19,12 @@
  * busy trade corridors rather than the whole ocean. Set AIS_BBOX to override.
  */
 
-export const config = { runtime: 'edge', maxDuration: 30 };
+// Node runtime, deliberately not Edge: the Edge runtime forbids touching I/O
+// created in one request's context from another request's handler, which
+// kills the persistent aisstream WebSocket (observed live: "Cannot perform
+// I/O on behalf of a different request"). Node serverless keeps module state
+// across warm invocations, so one socket really does serve every warm poll.
+export const config = { runtime: 'nodejs', maxDuration: 30 };
 
 const STREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 
@@ -319,7 +324,10 @@ function snapshot() {
 }
 
 /* ----------------------------------------------------------------- handler */
-export default async function handler(request) {
+// Node runtime wants fetch-style named exports; a default export returning a
+// Response is silently ignored there (verified in production logs), which
+// dead-ends every request until the runtime timeout.
+async function handle(request) {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders() });
   }
@@ -368,3 +376,5 @@ export default async function handler(request) {
     vessels: snap.vessels.slice(0, limit),
   });
 }
+
+export { handle as GET, handle as OPTIONS };

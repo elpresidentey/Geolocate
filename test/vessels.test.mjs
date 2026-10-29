@@ -66,10 +66,10 @@ function reset({ confirm = true } = {}) {
 }
 
 /* ------------------------------------------------------------------- setup */
-const { default: handler, __reset } = await import('../api/vessels.js?fresh=' + Math.random());
+const { GET: handler, __reset } = await import('../api/vessels.js?fresh=' + Math.random());
 function freshHandler() {
   // module keeps its socket between calls; re-import for a clean table
-  return import('../api/vessels.js?fresh=' + Math.random()).then(m => m.default);
+  return import('../api/vessels.js?fresh=' + Math.random()).then(m => m.GET);
 }
 
 const req = (method = 'GET') =>
