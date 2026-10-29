@@ -300,6 +300,8 @@
       -webkit-overflow-scrolling:touch;scrollbar-width:none;
       padding:6px calc(8px + var(--sar)) 6px calc(8px + var(--sal))}
     #chips::-webkit-scrollbar{display:none}
+    .chip{padding:9px 14px}
+    .chip input{width:14px;height:14px}
     #lanebar,#hud{display:none}
 
     /* Telemetry strip: one scrollable row pinned under the chips.
@@ -315,15 +317,17 @@
       overflow:hidden;text-overflow:ellipsis}
     .kpi .val{font-size:17px}
     .kpi .val small{font-size:10px}
-    .kpi .delta.src{font-size:8.5px}
+    .kpi .delta.src{font-size:8.5px;white-space:nowrap;
+      overflow:hidden;text-overflow:ellipsis}
     .spark{margin-top:5px}
 
     /* Bottom sheet: vessels / route / alerts share one drawer.
        The drawer starts below the telemetry strip, never over it. */
     #mtabs{display:flex;position:fixed;z-index:22;
       left:calc(8px + var(--sal));right:calc(8px + var(--sar));
-      bottom:calc(42px + var(--sab));gap:6px}
-    #mtabs button{flex:1;padding:7px 4px;border-radius:999px;font-size:9.5px;
+      bottom:calc(46px + var(--sab));gap:8px}
+    /* ≥44px tall: the finger rule the pills below were violating */
+    #mtabs button{flex:1;padding:13px 6px;border-radius:999px;font-size:10px;
       letter-spacing:1.1px;text-transform:uppercase;cursor:pointer;
       color:#cfe4ff;background:rgba(20,34,66,.72);border:1px solid var(--line);
       backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
@@ -336,9 +340,15 @@
     /* One drawer at a time. Anchored to the bottom and sized to its content
        (capped), so it never stretches up across the globe. */
     #leftcol,#rightcol{position:fixed;left:0;right:0;width:auto;
-      top:auto;bottom:calc(84px + var(--sab));pointer-events:none;gap:0}
-    #leftcol,#rightcol{display:none}
-    #leftcol.open,#rightcol.open{display:flex;flex-direction:column}
+      top:auto;bottom:calc(102px + var(--sab));pointer-events:none;gap:0}
+    /* The telemetry strip (#kpis) lives inside the left column, and sourced
+       numbers must survive a closed drawer — so the column never fully hides;
+       only its shipment list does. The strip positions itself, out of flow. */
+    #rightcol{display:none}
+    #rightcol.open{display:flex;flex-direction:column}
+    #leftcol{display:flex;flex-direction:column}
+    #leftcol > #shipments{display:none}
+    #leftcol.open > #shipments{display:flex}
     #leftcol.open{max-height:38vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
     #rightcol.open{max-height:40vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
     /* kpis are out of flow now, so the drawer only holds the panel */
@@ -350,7 +360,7 @@
 
     .panel{width:auto;margin:0 calc(8px + var(--sar)) 0 calc(8px + var(--sal));
       border-radius:16px}
-    #leftcol > #shipments{display:flex;flex-direction:column}
+    #leftcol.open > #shipments{display:flex;flex-direction:column}
     #leftcol > #shipments > div:last-child{overflow-y:auto;min-height:0;
       -webkit-overflow-scrolling:touch}
     #rightcol > #planner,#rightcol > #alerts{display:block;flex:0 0 auto}
@@ -1859,6 +1869,7 @@ function fitGlobe() {
   // Desktop keeps the hand-tuned framing distance, which shows the lit limb,
   // the city lights, and leaves room for the side panels.
   if (!phone) {
+    camera.clearViewOffset();   // undo any phone band-centering
     const dir0 = camera.position.clone().sub(controls.target);
     if (dir0.lengthSq() < 1e-6) dir0.set(0.5, 0.25, 1);
     camera.position.copy(controls.target).add(dir0.normalize().multiplyScalar(16.4));
@@ -1866,13 +1877,24 @@ function fitGlobe() {
     return;
   }
 
-  // On a phone only the gap above the drawer is free, and the horizontal FOV
-  // collapses, so solve for a distance that fits Earth into that gap.
+  // On a phone, affordances (telemetry strip, tab bar, an open drawer) carve
+  // the screen into a band; Earth must live inside that band, centered in it.
+  // Measure the actual band, solve for a distance that fits Earth's angular
+  // radius into whichever axis is tighter, and shift the view offset so the
+  // globe centers on the band rather than the raw viewport middle.
+  const kpiBox = document.getElementById('kpis').getBoundingClientRect();
+  const tabsBox = document.getElementById('mtabs').getBoundingClientRect();
+  const bandTop = kpiBox.bottom;
+  const bandBot = tabsBox.height ? tabsBox.top : innerHeight; // mtabs hidden => whole below-strip is free
+  const band = Math.max(bandBot - bandTop, innerHeight * 0.22);
   const vFov = camera.fov * Math.PI / 180;
   const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
-  const visibleFraction = 0.52;
-  const fitFov = Math.min(vFov * visibleFraction, hFov);
-  const needed = (EARTH_R + 0.35) / Math.sin(Math.atan(Math.tan(fitFov / 2) / 1.5));
+  const bandCenter = (bandTop + bandBot) / 2;
+  camera.setViewOffset(innerWidth, innerHeight, 0, bandCenter - innerHeight / 2,
+    innerWidth, innerHeight);
+  camera.updateProjectionMatrix();
+  const fitFov = Math.min(vFov * (band / innerHeight), hFov);
+  const needed = (EARTH_R + 0.35) / Math.sin(Math.atan(Math.tan(fitFov / 2) / 1.32));
 
   const dir = camera.position.clone().sub(controls.target);
   if (dir.lengthSq() < 1e-6) dir.set(0.5, 0.25, 1);
@@ -1895,7 +1917,9 @@ function currentSheet() {
   return '';
 }
 
-showSheet(matchMedia('(max-width:820px)').matches ? 'leftcol' : '');
+// Phone opens globe-first: the Earth is the subject, so nothing covers it
+// until the user asks for a panel from the tabs below. Desktop opens nothing.
+showSheet('');
 </script>
 </body>
 </html>
