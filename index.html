@@ -879,8 +879,12 @@ async function loadTle(force) {
     if (b.name) tleState.name = String(b.name);
     setPill('pillIss', 'ok', 'ISS live · SGP4');
   } catch (err) {
-    // Surface why, then stay in the telemetry-anchor mode; the poll cadence
-    // below decides whether to retry
+    // Surface why, then stay in the telemetry-anchor mode — but keep trying:
+    // without a retry ladder a single failed boot-time fetch (a 429, a
+    // timeout) used to strand the app in anchor mode until a reload.
+    const gap = tleState.retryGap || 60e3;
+    tleState.retryGap = Math.min(gap * 2, 600e3);   // 1 min, 2, 4 … capped 10 min
+    tleState.retryAt = Date.now() + gap;
     setPill('pillIss', 'bad', 'ISS TLE: ' + err.message);
   }
 }
@@ -907,8 +911,14 @@ function sgp4Sample(tMs) {
 function sgp4Fix(nowMs) {
   const fix = sgp4Sample(nowMs);
   if (!fix) {
-    // propagate failed (satellite.js sets satrec.error): say so once and let
-    // the anchor mode take over rather than silently freezing the tiles
+    // propagate failed (satellite.js sets satrec.error): say so once, ride it
+    // out briefly, and re-pull the element set if it never recovers — a bad
+    // or stale TLE is fixable, silently freezing the tiles is not.
+    if ((sgp4Fix.fails = (sgp4Fix.fails || 0) + 1) > 120) {   // ~30 s of 250 ms ticks
+      sgp4Fix.fails = 0;
+      setPill('pillIss', 'bad', 'ISS SGP4 failing — refreshing element set');
+      loadTle(true);
+    }
     if (!sgp4Fix.reported) {
       sgp4Fix.reported = true;
       setPill('pillIss', 'bad', 'ISS SGP4 failed' +
@@ -916,6 +926,8 @@ function sgp4Fix(nowMs) {
     }
     return false;
   }
+  sgp4Fix.reported = false;
+  sgp4Fix.fails = 0;
   issState.lat = fix.lat; issState.lon = fix.lon;
   issState.alt = fix.alt; issState.vel = fix.vel;
   issState.ready = true;
@@ -934,9 +946,16 @@ function sgp4Tick() {   // wall-clock driven; runs via setInterval (works in bac
   try {
     const nowMs = Date.now();
     if (tleState.fetchedAt && nowMs - tleState.fetchedAt > TLE_MAX_AGE_MS) loadTle(true); // async
+    // TLE dead or feed failed: keep knocking on the provider's door on the
+    // retry ladder instead of waiting for a manual reload.
+    if (!tleState.satrec && tleState.retryAt && nowMs > tleState.retryAt) {
+      tleState.retryAt = 0;
+      loadTle();
+    }
     if (nowMs - sgp4LastFix < SGP4_TICK_MS) return;
     sgp4LastFix = nowMs;
     if (!sgp4Fix(nowMs)) return;
+    sgp4Tick.faults = 0;                     // a clean fix resets the fault ladder
     const R = EARTH_R + (issState.alt / EARTH_KM) * EARTH_R;
     const p = unitVector(issState.lat, issState.lon).multiplyScalar(R);
     issMesh.position.copy(p);
@@ -948,10 +967,17 @@ function sgp4Tick() {   // wall-clock driven; runs via setInterval (works in bac
       renderIssTiles();
     }
   } catch (err) {
+    // Faults are terrain, not verdicts: a single throw (a degenerate track
+    // sample, a transient NaN) is ridden out and the next clean fix resets
+    // the ladder. Only a sustained collapse hands the floor to the anchor.
+    if (++sgp4Tick.faults < 16) return;      // ~4 s of 250 ms ticks
+    sgp4Tick.faults = 0;
     // never let a propagation fault kill the app: drop to the
     // telemetry-anchor mode and show what actually went wrong
     sgp4Broke = true;
     tleState.satrec = null;                    // falls back to anchor mode
+    tleState.fetchedAt = 0;
+    tleState.retryAt = Date.now() + 60e3;      // and try SGP4 again shortly
     setPill('pillIss', 'bad', 'ISS SGP4 fault: ' + err.message);
     console.error('sgp4Tick failed:', err);
   }
@@ -1600,6 +1626,9 @@ async function loadISS() {
     // optional in this mode — no tiles are written from it while SGP4 runs.
     if (Date.now() - issCrossAt < 300e3) return;
     issCrossAt = Date.now();
+    // Re-assert the label every pass: after the boot-race fix no path should
+    // mislabel it, but the pilot line must never outlive the truth it reports.
+    setPill('pillIss', 'ok', 'ISS live · SGP4');
     try {
       const r = await fetch('https://api.wheretheiss.at/v1/satellites/25544', { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -1618,6 +1647,12 @@ async function loadISS() {
   try {
     const r = await fetch('https://api.wheretheiss.at/v1/satellites/25544', { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
+    // The sgp4Active() gate was checked at call time, before this fetch.
+    // If the TLE landed while the request was in flight, propagation has
+    // since engaged — never write telemetry over work it now owns. (This
+    // race at boot left the pill labeled "TLE anchor" forever, while the
+    // tiles already showed fresh SGP4 numbers.)
+    if (sgp4Active()) return;
     const d = await r.json();
     setTile('tIssAlt', d.altitude.toFixed(1) + '<small>km</small>', 'tIssBar',
       (d.altitude - 390) / 60);                       // 390-450 km band, where 25544 actually flies
