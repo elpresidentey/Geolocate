@@ -114,6 +114,17 @@
   }
   #leftcol > *{pointer-events:auto}
   #kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;flex:0 0 auto}
+  /* Telemetry is status, not task: it can park itself and Earth takes the
+     freed attention back. Desktop-only control; the phone strip needs its
+     every pixel */
+  #kpiToggle{grid-column:1/-1;display:flex;align-items:center;justify-content:
+    space-between;background:var(--glass);border:1px solid var(--line);
+    border-radius:10px;padding:7px 12px;color:#bcd6f5;cursor:pointer;
+    font-family:inherit;font-size:10px;letter-spacing:1.8px;text-transform:uppercase}
+  #kpiToggle:hover{border-color:rgba(125,180,255,.5)}
+  #kpiToggle i{font-style:normal;color:#7fa8d8}
+  #kpis.collapsed .kpi{display:none}
+  #kpis.collapsed #kpiChev{transform:rotate(180deg)}
   #shipments{position:static;width:auto;flex:1 1 auto;min-height:120px;overflow-y:auto}
   #rightcol{position:fixed;right:calc(16px + var(--sar));top:calc(68px + var(--sat));
     bottom:calc(50px + var(--sab));width:332px;z-index:10;
@@ -308,8 +319,8 @@
       -webkit-overflow-scrolling:touch;scrollbar-width:none;
       padding:6px calc(8px + var(--sar)) 6px calc(8px + var(--sal))}
     #chips::-webkit-scrollbar{display:none}
-    .chip{padding:9px 14px}
-    .chip input{width:14px;height:14px}
+    .chip{padding:10px 15px}
+    .chip input{width:14px;height:14px;pointer-events:none}  /* the pill is the target */
     #lanebar,#hud{display:none}
 
     /* Telemetry strip: one scrollable row pinned under the chips.
@@ -318,9 +329,13 @@
     #kpis{position:fixed;left:0;right:0;top:calc(96px + var(--sat));z-index:11;
       display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
       scrollbar-width:none;height:78px;
-      padding:0 calc(8px + var(--sar)) 6px calc(8px + var(--sal))}
+      padding:0 calc(8px + var(--sar)) 6px calc(8px + var(--sal));
+      scroll-snap-type:x proximity;
+      mask-image:linear-gradient(to right,#000 90%,transparent);
+      -webkit-mask-image:linear-gradient(to right,#000 90%,transparent)}
     #kpis::-webkit-scrollbar{display:none}
-    .kpi{flex:0 0 auto;width:124px;height:72px;padding:7px 9px;overflow:hidden}
+    #kpiToggle{display:none}
+    .kpi{flex:0 0 auto;width:124px;height:72px;padding:7px 9px;overflow:hidden;scroll-snap-align:start}
     .kpi .lbl{font-size:8.5px;letter-spacing:1.1px;white-space:nowrap;
       overflow:hidden;text-overflow:ellipsis}
     .kpi .val{font-size:17px}
@@ -422,6 +437,9 @@
 
 <div id="leftcol">
   <section id="kpis">
+    <button id="kpiToggle" type="button" aria-expanded="true"
+      title="Park the telemetry tiles and give the globe the room">
+      <span>Telemetry</span><i id="kpiChev">&#9662;</i></button>
     <div class="kpi glass"><div class="lbl">ISS altitude</div><div class="val" id="tIssAlt">--<small>km</small></div>
       <div class="delta src" id="tIssPos">fetching position…</div><div class="spark"><i id="tIssBar" style="width:0%"></i></div></div>
     <div class="kpi glass"><div class="lbl">ISS velocity</div><div class="val" id="tIssVel">--<small>km/h</small></div>
@@ -481,14 +499,14 @@
 </div>
 
 <div id="chips">
-  <label class="chip"><input type="checkbox" id="lyClouds" checked><span>Clouds</span></label>
-  <label class="chip"><input type="checkbox" id="lyWind" checked title="Wind streaks · Open-Meteo model analysis, pending"><span>Wind</span></label>
-  <label class="chip"><input type="checkbox" id="lyLights" checked><span>City lights</span></label>
-  <label class="chip"><input type="checkbox" id="lyLanes" checked><span>Lanes</span></label>
-  <label class="chip"><input type="checkbox" id="lyLabels" checked><span>Port labels</span></label>
-  <label class="chip"><input type="checkbox" id="lyISS" checked><span>ISS</span></label>
-  <label class="chip"><input type="checkbox" id="lyMoon" checked><span>Moon</span></label>
-  <label class="chip"><input type="checkbox" id="lyReal" checked><span>Real-time sun</span></label>
+  <label class="chip"><input type="checkbox" id="lyClouds" checked aria-label="Clouds layer"><span>Clouds</span></label>
+  <label class="chip"><input type="checkbox" id="lyWind" checked title="Wind streaks · Open-Meteo model analysis, pending" aria-label="Wind streaks layer"><span>Wind</span></label>
+  <label class="chip"><input type="checkbox" id="lyLights" checked aria-label="City lights layer"><span>City lights</span></label>
+  <label class="chip"><input type="checkbox" id="lyLanes" checked aria-label="Shipping lanes layer"><span>Lanes</span></label>
+  <label class="chip"><input type="checkbox" id="lyLabels" checked aria-label="Port labels layer"><span>Port labels</span></label>
+  <label class="chip"><input type="checkbox" id="lyISS" checked aria-label="ISS layer"><span>ISS</span></label>
+  <label class="chip"><input type="checkbox" id="lyMoon" checked aria-label="Moon layer"><span>Moon</span></label>
+  <label class="chip"><input type="checkbox" id="lyReal" checked aria-label="Real-time sun layer"><span>Real-time sun</span></label>
 </div>
 
 <footer id="ticker">
@@ -1463,6 +1481,11 @@ function plotRoute(a, b) {
     `${kind} distance &asymp; <b>${km.toLocaleString()} km</b><br>` +
     `ETA &asymp; <b>${days.toFixed(1)} days</b> at 17 knots (756 km/day)` +
     `<div class="risk" style="color:#9dc7ff">Route ${viaNote} · planning geometry, not a booking — canal transits, weather routing and berth queues excepted.</div>`;
+
+  // Result-in-place: on a phone an open ROUTE drawer covers the very line it
+  // just drew. Collapse it so the corridor lands on the globe it describes;
+  // the full stamp survives — tapping ROUTE reopens the summary.
+  if (matchMedia('(max-width:820px)').matches) showSheet('');
 }
 
 /* ============================================================
@@ -1608,6 +1631,7 @@ async function loadVessels() {
     updateVesselPositions(liveVessels);
     renderVesselList(liveVessels);
     updateLaneTallies(liveVessels);   // corridor styles/badges follow the feed
+    renderTicker();                  // the AIS event-line follows the feed state
   } catch (err) {
     liveVessels = [];
     aisState.message = 'Could not reach the AIS proxy (/api/vessels)';
@@ -1615,6 +1639,7 @@ async function loadVessels() {
     updateVesselPositions([]);
     renderVesselList([]);
     updateLaneTallies([]);            // no feed, no claimed traffic
+    renderTicker();
   }
 }
 
@@ -1633,6 +1658,9 @@ document.getElementById('shipList').addEventListener('click', e => {
     toPos: unitVector(v.lat, v.lon).multiplyScalar(EARTH_R * 3.0),
     toTg: earthTilt.localToWorld(focusPt.clone()),
   };
+  // Result-in-place: fly-to happens behind a phone drawer. Collapse it so
+  // the camera move is the thing the operator actually sees.
+  if (matchMedia('(max-width:820px)').matches) showSheet('');
 });
 
 loadVessels();
@@ -1667,10 +1695,8 @@ function setPill(id, state, text) {
 
 function deriveAlertsFrom(iss, ports) {
   alerts.length = 0;
-  if (iss) {
-    pushAlert('info', 'i', `ISS at ${fmtLatLon(iss.lat, iss.lon)}`,
-      `${esc(iss.visibility || '')} · ${Math.round(iss.alt)} km · ${Math.round(iss.vel).toLocaleString()} km/h`);
-  }
+  // The ISS observation lives in its own tiles; the alert panel is reserved
+  // for true deviations — routine state must never train users to ignore it.
   for (const p of ports.values()) {
     if (p.wave != null && p.wave >= 2.5) {
       pushAlert('bad', '!', `Rough sea off ${esc(p.key)}`,
@@ -1935,12 +1961,14 @@ addEventListener('appinstalled', () => {
 });
 
 /* The ticker carries observations we actually hold, stamped with their real
-   analysis time. It is not a stream of invented shipping events. */
+   analysis time. It is not a stream of invented shipping events, and it does
+   not repeat what a status tile already says — the ISS position owns two
+   tiles; here it would only be a third copy. */
 function renderTicker() {
   const items = [];
-  if (issState.ready) {
-    items.push(`<span><b>ISS 25544</b> — ${fmtLatLon(issState.lat, issState.lon)}, ${Math.round(issState.alt)} km, ${esc(issVisibility.toLowerCase())}</span>`);
-  }
+  items.push(aisState.configured && liveVessels.length
+    ? `<span><b>Live AIS</b> — ${liveVessels.length} vessels reporting · positions as received</span>`
+    : `<span><b>Live AIS</b> — ${esc(aisState.message || 'not reporting')} · lane geometry is real</span>`);
   for (const p of observed.values()) {
     items.push(`<span><b>${esc(p.key)}</b> — ${p.temp != null ? p.temp.toFixed(1) + ' °C' : 'temp n/a'}, wind ${p.wind.toFixed(1)} m/s${p.wave != null ? `, sea ${p.wave.toFixed(1)} m` : ''} · analysis ${esc(p.observedAt)}</span>`);
   }
@@ -2285,6 +2313,22 @@ function showSheet(which) {
   fitGlobe();
 }
 
+/* Telemetry collapse: parked tiles persist across reloads, and parking them
+   is the one gesture that lets the desktop globe grow past its hand-tuned
+   framing — the camera only ever moves closer, never farther. */
+const kpisEl = document.getElementById('kpis');
+const kpiToggle = document.getElementById('kpiToggle');
+if (localStorage.getItem('ofKpiCollapsed') === '1') {
+  kpisEl.classList.add('collapsed');
+  kpiToggle.setAttribute('aria-expanded', 'false');
+}
+kpiToggle.addEventListener('click', () => {
+  const collapsed = kpisEl.classList.toggle('collapsed');
+  localStorage.setItem('ofKpiCollapsed', collapsed ? '1' : '0');
+  kpiToggle.setAttribute('aria-expanded', String(!collapsed));
+  fitGlobe();
+});
+
 mtabs.addEventListener('click', e => {
   const btn = e.target.closest('button');
   if (!btn) return;
@@ -2305,12 +2349,25 @@ function fitGlobe() {
   const phone = matchMedia('(max-width:820px)').matches;
 
   // Desktop keeps the hand-tuned framing distance, which shows the lit limb,
-  // the city lights, and leaves room for the side panels.
+  // the city lights, and leaves room for the side panels. When the telemetry
+  // tiles are parked, solve for the band the rails actually leave and let
+  // Earth claim it — floored so we only ever grow, never crowd.
   if (!phone) {
     camera.clearViewOffset();   // undo any phone band-centering
+    const freeW = Math.max(rightcol.getBoundingClientRect().left -
+                           leftcol.getBoundingClientRect().right,
+                           innerWidth * 0.35);
+    let dist = 16.4;
+    if (kpisEl.classList.contains('collapsed')) {
+      const vFov = camera.fov * Math.PI / 180;
+      const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+      const needed = (EARTH_R + 0.35) / Math.sin(
+        Math.atan(Math.tan(hFov * (freeW / innerWidth) / 2) / 1.32));
+      dist = Math.max(11.2, Math.min(needed, 16.4));
+    }
     const dir0 = camera.position.clone().sub(controls.target);
     if (dir0.lengthSq() < 1e-6) dir0.set(0.5, 0.25, 1);
-    camera.position.copy(controls.target).add(dir0.normalize().multiplyScalar(16.4));
+    camera.position.copy(controls.target).add(dir0.normalize().multiplyScalar(dist));
     controls.maxDistance = 52;
     return;
   }
