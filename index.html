@@ -464,7 +464,7 @@
       <button id="planBtn">PLOT ROUTE</button>
       <button class="ghost" id="swapBtn" title="Swap origin and destination">&#8646;</button>
     </div>
-    <div id="planOut">Select two ports and plot a great-circle lane.</div>
+    <div id="planOut">Select two ports — the route follows the charted sea corridors.</div>
   </section>
 
   <section class="panel glass" id="alerts">
@@ -482,6 +482,7 @@
 
 <div id="chips">
   <label class="chip"><input type="checkbox" id="lyClouds" checked><span>Clouds</span></label>
+  <label class="chip"><input type="checkbox" id="lyWind" checked title="Wind streaks · Open-Meteo model analysis, pending"><span>Wind</span></label>
   <label class="chip"><input type="checkbox" id="lyLights" checked><span>City lights</span></label>
   <label class="chip"><input type="checkbox" id="lyLanes" checked><span>Lanes</span></label>
   <label class="chip"><input type="checkbox" id="lyLabels" checked><span>Port labels</span></label>
@@ -508,6 +509,7 @@
     <div class="k"><span>Day / night</span><b>UTC → solar longitude + declination + equation of time; geometry and tiles share one source</b></div>
     <div class="k"><span>ISS</span><b>TLE (element set) propagated client-side with satellite.js SGP4 · fallback: wheretheiss.at telemetry anchors</b></div>
     <div class="k"><span>Port weather</span><b>Open-Meteo model analysis (nowcast) · Lagos &amp; Rotterdam</b></div>
+    <div class="k"><span>Wind patterns</span><b>Open-Meteo 10-m wind model analysis, global 15° grid · streaks are model wind, not satellite imagery</b></div>
     <div class="k"><span>Sea state</span><b>Open-Meteo marine model · North Sea gridpoint off Rotterdam</b></div>
     <div class="k"><span>Vessel positions</span><b>Live AIS via server-side proxy (needs a provider key)</b></div>
     <div class="k"><span>Lanes &amp; ports</span><b>Real coordinates, great-circle geometry</b></div>
@@ -1194,7 +1196,7 @@ const SEA_ROUTES = [
    carriageways), never an implied vessel position.
    ============================================================ */
 const LANE_TALLY_KM = 150;          // corridor half-width for the live tally
-const LANE_STRAND_GAP_KM = 34;      // carriageway spacing (perpendicular offset)
+const LANE_STRAND_GAP_KM = 26;      // carriageway spacing (perpendicular offset)
 const laneClock = { value: 0 };     // one clock shared by every strand shader
 
 const LANE_VERT = `
@@ -1210,7 +1212,7 @@ const LANE_FRAG = `
   varying float vT;
   void main(){
     float d = fract(vT * uDash - uTime * uSpeed * uDir);
-    float pulse = smoothstep(0.0, 0.10, d) * smoothstep(0.55, 0.40, d);
+    float pulse = smoothstep(0.0, 0.07, d) * smoothstep(0.45, 0.36, d);
     float ends = smoothstep(0.0, 0.03, vT) * smoothstep(1.0, 0.97, vT);
     gl_FragColor = vec4(uColor, pulse * uOpacity * ends);
   }`;
@@ -1304,9 +1306,12 @@ function updateLaneTallies(list) {
 /* Three moods, driven only by the live count — strands are lit per tally,
    never for decoration. */
 function setLaneMood(lane) {
-  const M = lane.count === 0 ? { lit: 2, spine: 0.20, side: 0.07 }
-          : lane.count < 10  ? { lit: 3, spine: 0.52, side: 0.42 }
-          :                    { lit: 5, spine: 0.80, side: 0.62 };
+  // Moods stay driven only by the live count; readability comes first, so no
+  // mood lights more than three strands. Asleep corridors stay barely visible,
+  // busy ones raise brightness, not bulk.
+  const M = lane.count === 0 ? { lit: 2, spine: 0.13, side: 0.05 }
+          : lane.count < 10  ? { lit: 3, spine: 0.34, side: 0.17 }
+          :                    { lit: 3, spine: 0.50, side: 0.24 };
   lane.strands.forEach((s, i) => {
     s.uniforms.uOpacity.value = (s.spine ? M.spine : M.side) * lane.multiplier;
     s.mesh.visible = i < M.lit;
@@ -1329,28 +1334,135 @@ function renderLaneTallies() {
   document.getElementById('laneCount').textContent = withTraffic + '/' + lanes.length;
 }
 
+/* ---- charted-corridor routing -------------------------------------------
+   A raw great circle from Shanghai to Lagos sails straight over India and
+   Arabia. The planner now walks the traced LANES instead: waypoints form a
+   graph (anchors shared by several corridors merge within 0.5°), each port
+   splices to its nearest charted points (≤ 1400 km, at most 3), and a
+   shortest-path walk picks the sea route. Distance is the sum of the
+   graph's great-circle legs — the same legs the drawn line follows, so the
+   stamp and the drawing cannot disagree. If no corridor chain connects,
+   the planner falls back to a plain great circle and says so. */
+const routeNodes = [];
+const nodeId = (lat, lon) => `${Math.round(lat * 2) / 2},${Math.round(lon * 2) / 2}`;
+const gcKm = (la1, lo1, la2, lo2) =>
+  unitVector(la1, lo1).angleTo(unitVector(la2, lo2)) * EARTH_KM;
+
+function buildRouteGraph() {
+  const ix = new Map();
+  const node = (lat, lon) => {
+    const k = nodeId(lat, lon);
+    let i = ix.get(k);
+    if (i === undefined) {
+      i = routeNodes.length;
+      ix.set(k, i);
+      routeNodes.push({ lat: Math.round(lat * 2) / 2, lon: Math.round(lon * 2) / 2, edges: [] });
+    }
+    return i;
+  };
+  const link = (i, j, km, lane) => {
+    if (!routeNodes[i].edges.some(e => e.to === j)) routeNodes[i].edges.push({ to: j, km, lane });
+    if (!routeNodes[j].edges.some(e => e.to === i)) routeNodes[j].edges.push({ to: i, km, lane });
+  };
+  SEA_ROUTES.forEach(r => {
+    for (let j = 0; j < r.pts.length - 1; j++) {
+      const [lo1, la1] = r.pts[j], [lo2, la2] = r.pts[j + 1];
+      const a = node(la1, lo1), b = node(la2, lo2);
+      if (a !== b) link(a, b, gcKm(la1, lo1, la2, lo2), r.name);
+    }
+  });
+  // Port splices: real berths sit off the traced chains, so each port links
+  // to its nearest charted points. The splice is a planning assumption, and
+  // the output says the whole figure is planning geometry.
+  ports.forEach(p => {
+    const pIdx = node(p.lat, p.lon);
+    routeNodes.map((n, ni) => ({ ni, km: gcKm(p.lat, p.lon, n.lat, n.lon) }))
+      .filter(x => x.km > 0 && x.km <= 1400 && routeNodes[x.ni].edges.length)
+      .sort((x, y) => x.km - y.km)
+      .slice(0, 3)
+      .forEach(x => link(pIdx, x.ni, x.km, null));
+  });
+  return ports.map(p => node(p.lat, p.lon));
+}
+const ROUTER_PORT_NODES = buildRouteGraph();
+
+function corridorPath(fromNi, toNi) {
+  const n = routeNodes.length;
+  const dist = new Array(n).fill(Infinity);
+  const prev = new Array(n).fill(-1);
+  const lane = new Array(n).fill(null);
+  const stepKm = new Array(n).fill(0);
+  const seen = new Uint8Array(n);
+  dist[fromNi] = 0;
+  for (;;) {
+    let u = -1, du = Infinity;
+    for (let i = 0; i < n; i++) if (!seen[i] && dist[i] < du) { u = i; du = dist[i]; }
+    if (u === -1 || u === toNi) break;
+    seen[u] = 1;
+    for (const e of routeNodes[u].edges) {
+      if (seen[e.to]) continue;
+      if (du + e.km < dist[e.to]) {
+        dist[e.to] = du + e.km; prev[e.to] = u;
+        lane[e.to] = e.lane; stepKm[e.to] = e.km;
+      }
+    }
+  }
+  if (!isFinite(dist[toNi])) return null;
+  const ids = [];
+  for (let i = toNi; i !== -1; i = prev[i]) ids.unshift(i);
+  // Corridor attribution by real contribution: a chain-touching edge of a few
+  // dozen km must not bill a whole corridor into the summary.
+  const laneKm = new Map();
+  for (let k = 1; k < ids.length; k++) {
+    const ln = lane[ids[k]];
+    if (ln) laneKm.set(ln, (laneKm.get(ln) || 0) + stepKm[ids[k]]);
+  }
+  const corridors = [...laneKm.entries()]
+    .filter(x => x[1] >= 1000 && x[1] / dist[toNi] >= 0.15)   // significant share only
+    .sort((x, y) => y[1] - x[1]).map(x => x[0]);
+  return { pts: ids.map(i => routeNodes[i]), km: dist[toNi], corridors };
+}
+
 let planned = null;
 function plotRoute(a, b) {
-  if (planned) { routeGroup.remove(planned.tube); routeGroup.remove(planned.pulse); }
-  // Lift kept small (2% of the radius) so the drawn path stays essentially the
-  // great circle the distance below is computed on — a tall decorative arc
-  // would make the animated pulse visibly longer than the stated kilometres.
-  const curve = arcCurve(a, b, SURFACE_R + 0.02, 0.02);
-  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 140, 0.016, 6, false),
-    new THREE.MeshBasicMaterial({ color: 0xff4d6d, transparent: true, opacity: 0.98 }));
+  if (planned) { routeGroup.remove(planned.tube); routeGroup.remove(planned.pulse); planned = null; }
+
+  const path = corridorPath(ROUTER_PORT_NODES[ports.indexOf(a)],
+                            ROUTER_PORT_NODES[ports.indexOf(b)]);
+  let curve, km, viaNote, kind;
+  if (path && path.pts.length > 2) {
+    km = Math.round(path.km);
+    kind = 'Charted-corridor';
+    const raw = path.pts.map(p => unitVector(p.lat, p.lon).multiplyScalar(SURFACE_R + 0.02));
+    // re-projected resample keeps the drawn line on the sphere; the pulse
+    // then rides the very geometry the kilometres were summed on
+    const smooth = new THREE.CatmullRomCurve3(raw, false, 'centripetal', 0.4)
+      .getPoints(320).map(q => q.clone().setLength(SURFACE_R + 0.02));
+    curve = new THREE.CatmullRomCurve3(smooth, false, 'centripetal', 0.4);
+    const via = path.corridors.slice(0, 3).join(' · ');
+    viaNote = via ? `follows charted corridors: <b>${esc(via)}</b>` : 'follows charted corridors';
+  } else {
+    km = Math.round(gcKm(a.lat, a.lon, b.lat, b.lon));
+    kind = 'Great-circle';
+    curve = arcCurve(a, b, SURFACE_R + 0.02, 0.02);
+    viaNote = 'no charted corridor chain links these ports — purely geometric arc';
+  }
+  // Radius trimmed (0.016 → 0.010) and the pulse shrunk with it: a planning
+  // line must be readable, not a decoration.
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 170, 0.010, 6, false),
+    new THREE.MeshBasicMaterial({ color: 0xff6b81, transparent: true, opacity: 0.9 }));
   routeGroup.add(tube);
-  const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 16),
+  const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.085, 14, 14),
     new THREE.MeshBasicMaterial({ color: 0xffe3e8 }));
   routeGroup.add(pulse);
   planned = { tube, curve, pulse, t: 0 };
 
-  const km = Math.round(unitVector(a.lat, a.lon).angleTo(unitVector(b.lat, b.lon)) * EARTH_KM);
   const days = km / 756;   // 17 kn × 1.852 km/h × 24 h = 755.6 km/day
   document.getElementById('planOut').innerHTML =
-    `<b>${a.name} &rarr; ${b.name}</b><br>` +
-    `Great-circle distance &asymp; <b>${km.toLocaleString()} km</b><br>` +
+    `<b>${esc(a.name)} &rarr; ${esc(b.name)}</b><br>` +
+    `${kind} distance &asymp; <b>${km.toLocaleString()} km</b><br>` +
     `ETA &asymp; <b>${days.toFixed(1)} days</b> at 17 knots (756 km/day)` +
-    `<div class="risk" style="color:#9dc7ff">Geometry only — real transits follow the traced lanes, canal transits and weather routing.</div>`;
+    `<div class="risk" style="color:#9dc7ff">Route ${viaNote} · planning geometry, not a booking — canal transits, weather routing and berth queues excepted.</div>`;
 }
 
 /* ============================================================
@@ -1631,9 +1743,155 @@ document.getElementById('focusSel').onchange = (e) => {
   }
 };
 
+/* ============================================================
+   WIND PATTERNS — surface streaks from Open-Meteo's 10-m wind
+   model analysis, sampled on a coarse global grid (15° × 15°).
+   Every streak vector is model wind at a stated analysis time;
+   speed sets brightness and length, and the streaks drift at a
+   stylised rate. Fetches are network-only (the service worker
+   keeps their host network-first) and refresh every 30 min.
+   ============================================================ */
+const WX_LAT0 = -75, WX_LAT_STEP = 15, WX_LATS = 11;   // rows −75…+75
+const WX_LON_JUMP = 15, WX_LONS = 24;                  // cols −165…+180 (cyclic)
+const wxU = new Float32Array(WX_LATS * WX_LONS);       // eastward m/s
+const wxV = new Float32Array(WX_LATS * WX_LONS);       // northward m/s
+const wxState = { ready: false };
+let wxObservedAt = '', wxLoading = false;
+const wxLats = []; for (let a = WX_LAT0; a <= 75; a += WX_LAT_STEP) wxLats.push(a);
+const wxLons = []; for (let o = -165; o <= 180; o += WX_LON_JUMP) wxLons.push(o);
+
+/* Bilinear sample of the model grid at (lat, lon). Written into the module
+   values wxSU/wxSV (zero allocation in the per-frame path); the return is
+   the wind speed in m/s, or 0 with components left untouched off-grid. */
+let wxSU = 0, wxSV = 0;
+function wxSample(lat, lon) {
+  let gx = (lon + 165) / WX_LON_JUMP;
+  gx = ((gx % WX_LONS) + WX_LONS) % WX_LONS;
+  const ix = Math.floor(gx), fx = gx - ix, ixn = (ix + 1) % WX_LONS;
+  const gy = (lat - WX_LAT0) / WX_LAT_STEP;
+  const iy = Math.max(0, Math.min(WX_LATS - 2, Math.floor(gy)));
+  const fy = Math.max(0, Math.min(1, gy - iy)), iyn = iy + 1;
+  const r00 = iy * WX_LONS + ix, r0n = iy * WX_LONS + ixn;
+  const rn0 = iyn * WX_LONS + ix, rnn = iyn * WX_LONS + ixn;
+  wxSU = (wxU[r00] * (1 - fx) + wxU[r0n] * fx) * (1 - fy)
+       + (wxU[rn0] * (1 - fx) + wxU[rnn] * fx) * fy;
+  wxSV = (wxV[r00] * (1 - fx) + wxV[r0n] * fx) * (1 - fy)
+       + (wxV[rn0] * (1 - fx) + wxV[rnn] * fx) * fy;
+  return Math.hypot(wxSU, wxSV);
+}
+
+/* Streak field: alive particles on great-circle-local tangent motion. */
+const WIND_N = 700;
+const windGroup = new THREE.Group();
+windGroup.visible = false;                 // honest until the model arrives
+earthTilt.add(windGroup);
+const wgeo = new THREE.BufferGeometry();
+const wPos = new Float32Array(WIND_N * 6); // head + tail, xyz each
+const wCol = new Float32Array(WIND_N * 6);
+wgeo.setAttribute('position', new THREE.BufferAttribute(wPos, 3).setUsage(THREE.DynamicDrawUsage));
+wgeo.setAttribute('color', new THREE.BufferAttribute(wCol, 3).setUsage(THREE.DynamicDrawUsage));
+const wLines = new THREE.LineSegments(wgeo, new THREE.LineBasicMaterial({
+  vertexColors: true, transparent: true, opacity: 0.9,
+  depthWrite: false, blending: THREE.AdditiveBlending }));
+wLines.frustumCulled = false;              // bounding box never computed; data updates in place
+windGroup.add(wLines);
+const wP = new Float32Array(WIND_N * 4);   // lat°, lon°, age s, ttl s
+function windRespawn(i, first) {
+  wP[4*i]   = Math.random() * 150 - 75;
+  wP[4*i+1] = Math.random() * 360 - 180;
+  wP[4*i+2] = first ? Math.random() * 8 : 0;
+  wP[4*i+3] = 5 + Math.random() * 8;
+}
+for (let i = 0; i < WIND_N; i++) windRespawn(i, true);
+
+const _wUp = new THREE.Vector3(), _wE = new THREE.Vector3(),
+      _wN = new THREE.Vector3(), _wM = new THREE.Vector3();
+const D2R = Math.PI / 180, WIND_DEG_PER_MS = 0.045;   // 20 m/s ≈ 30° in 33 s
+
+function windTick(dt) {
+  const R = EARTH_R + 0.062;               // above the cloud shell, under the lanes
+  for (let i = 0; i < WIND_N; i++) {
+    let age = wP[4*i+2] + dt;
+    if (age > wP[4*i+3]) { windRespawn(i); age = 0; }
+    wP[4*i+2] = age;
+    const lat = wP[4*i], lon = wP[4*i+1];
+    const spd = wxSample(lat, lon);
+    const fade = Math.max(0, Math.min(age / 1.4, (wP[4*i+3] - age) / 2.2, 1));
+    const o = i * 6;
+    if (spd < 0.15) {                      // calm or void: fully dark, dumps to black
+      for (let k = 0; k < 6; k++) wCol[o+k] = 0;
+      continue;
+    }
+    // advance along the local great circle (met direction is FROM, so the
+    // vector is already toward); lat bounds clamped, lon wraps cyclically
+    let nl = wP[4*i] + wxSV * WIND_DEG_PER_MS * dt;
+    nl = Math.max(-76, Math.min(76, nl));
+    let no = wP[4*i+1] + (wxSU * WIND_DEG_PER_MS * dt) /
+             Math.max(Math.cos(nl * D2R), 0.3);
+    no = ((no + 180) % 360 + 360) % 360 - 180;
+    wP[4*i] = nl; wP[4*i+1] = no;
+    const phi = (90 - nl) * D2R, th = (no + 180) * D2R, sp = Math.sin(phi);
+    _wUp.set(-sp * Math.cos(th), Math.cos(phi), sp * Math.sin(th)).multiplyScalar(R);
+    _wE.set(_wUp.z, 0, -_wUp.x).normalize();
+    _wN.copy(_wUp).cross(_wE).normalize();
+    const L = 0.02 + 0.18 * Math.min(1, spd / 25) * (0.35 + 0.65 * fade);
+    _wM.copy(_wE).multiplyScalar(wxSU).addScaledVector(_wN, wxSV).normalize();
+    wPos[o]   = _wUp.x;              wPos[o+1] = _wUp.y;              wPos[o+2] = _wUp.z;
+    wPos[o+3] = _wUp.x - _wM.x * L;  wPos[o+4] = _wUp.y - _wM.y * L;  wPos[o+5] = _wUp.z - _wM.z * L;
+    const br = Math.min(1, spd / 22) * fade;
+    const cr = 0.32 + 0.5 * br, cg = 0.52 + 0.36 * br, cb = 0.62 + 0.38 * br;
+    wCol[o] = cr; wCol[o+1] = cg; wCol[o+2] = cb;
+    wCol[o+3] = cr; wCol[o+4] = cg; wCol[o+5] = cb;
+  }
+  wgeo.attributes.position.needsUpdate = true;
+  wgeo.attributes.color.needsUpdate = true;
+}
+
+async function loadWindField() {
+  if (wxLoading) return;
+  wxLoading = true;
+  const chip = $layer('lyWind');
+  try {
+    const pairs = [];
+    for (const a of wxLats) for (const o of wxLons) pairs.push([a, o]);
+    for (let c = 0; c < pairs.length; c += 132) {          // two always-cached GETs
+      const chunk = pairs.slice(c, c + 132);
+      const url = `${METEO}?latitude=${chunk.map(p => p[0]).join(',')}` +
+        `&longitude=${chunk.map(p => p[1]).join(',')}` +
+        '&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=ms';
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const arr = await r.json();                          // open-meteo: array when multiple coords
+      for (const item of arr) {
+        const cwx = item.current;
+        if (!cwx || cwx.wind_speed_10m == null || cwx.wind_direction_10m == null) continue;
+        const iy = Math.round((item.latitude - WX_LAT0) / WX_LAT_STEP);
+        const ix = Math.round(((((item.longitude + 165) % 360) + 360) % 360) / WX_LON_JUMP) % WX_LONS;
+        const dir = cwx.wind_direction_10m * D2R;          // FROM-north → components
+        wxU[iy * WX_LONS + ix] = -cwx.wind_speed_10m * Math.sin(dir);
+        wxV[iy * WX_LONS + ix] = -cwx.wind_speed_10m * Math.cos(dir);
+      }
+      const t0 = arr[0] && arr[0].current && arr[0].current.time;
+      if (t0) wxObservedAt = t0.slice(11, 16) + ' UTC';
+    }
+    wxState.ready = true;
+    chip.title = 'Wind streaks · Open-Meteo 10-m model analysis ' + wxObservedAt;
+    windGroup.visible = chip.checked;
+  } catch (err) {
+    if (!wxState.ready) {                                  // never had data: stay hidden
+      chip.title = 'Wind streaks · model analysis unavailable';
+      windGroup.visible = false;
+    }
+    // with prior data, the older stamped analysis keeps rendering as-is
+  } finally {
+    wxLoading = false;
+  }
+}
+
 // layer toggles
 const $layer = id => document.getElementById(id);
 $layer('lyClouds').onchange = e => clouds.visible = e.target.checked;
+$layer('lyWind').onchange   = e => windGroup.visible = e.target.checked && wxState.ready;
 $layer('lyLights').onchange = e => nightToggleUniform.value = e.target.checked ? 1 : 0;
 $layer('lyLanes').onchange  = e => routeGroup.visible = e.target.checked;
 $layer('lyLabels').onchange = e => labelGroup.visible = e.target.checked;
@@ -1887,12 +2145,14 @@ function solarGeometry() {
 
 loadISS();
 loadPortWeather();
+loadWindField();                // global wind pattern; refreshed every 30 min
 loadTle();                      // SGP4 element set; TLE available → SGP4 mode
 // SGP4 runs on a wall-clock interval, not rAF: it keeps propagating correctly
 // when the tab is hidden, which rAF (throttled to zero) never would.
 setInterval(() => sgp4Tick(), SGP4_TICK_MS);
 setInterval(loadISS, 15000);
 setInterval(loadPortWeather, 600000);
+setInterval(loadWindField, 1800000);
 
 /* ============================================================
    ANIMATION
@@ -1962,6 +2222,10 @@ function animate() {
   // Lane-ribbon dash flow (style only — the sourced traffic is the vessel
   // dots themselves and the per-corridor counts, recomputed at each poll)
   laneClock.value = t;
+
+  // Wind streaks drift from the sampled Open-Meteo model field; nothing here
+  // invents weather — no data, no streaks.
+  if (windGroup.visible && wxState.ready) windTick(dt);
   if (planned) {
     planned.t = (planned.t + dt * 0.08) % 1;
     planned.pulse.position.copy(planned.curve.getPoint(planned.t));
@@ -2101,6 +2365,18 @@ showSheet('');
 const launchView = new URLSearchParams(location.search).get('view');
 if (launchView === 'tracker') showSheet('leftcol');
 if (launchView === 'planner') showSheet('rightcol');
+
+/* Shareable routes: '?from=Shanghai&to=Lagos' pre-selects the pair and plots
+   it. Unknown port names fall back to whatever the selectors already hold. */
+const routeQs = new URLSearchParams(location.search);
+const fromQ = routeQs.get('from'), toQ = routeQs.get('to');
+if (fromQ || toQ) {
+  const fi = ports.findIndex(p => p.name.toLowerCase() === (fromQ || '').toLowerCase());
+  const ti = ports.findIndex(p => p.name.toLowerCase() === (toQ || '').toLowerCase());
+  if (fi > -1) document.getElementById('origin').selectedIndex = fi;
+  if (ti > -1) document.getElementById('dest').selectedIndex = ti;
+  document.getElementById('planBtn').click();
+}
 </script>
 </body>
 </html>
