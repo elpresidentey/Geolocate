@@ -200,6 +200,14 @@
   #lanebar .lane:hover .isolate,#lanebar .lane.isolated .isolate{opacity:1}
   #lanebar .lane.isolated .isolate{background:var(--accent);color:#fff}
   #lanebar .swatch{width:14px;height:3px;border-radius:2px;box-shadow:0 0 8px currentColor}
+  #lanebar .lane-tally{font-size:9px;letter-spacing:.5px;color:#dceaff;flex:none;
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  #lanebar .lane-tally b{font-weight:700}
+  #lanebar .lane-bar{width:34px;height:3px;border-radius:2px;
+    background:rgba(255,255,255,.09);overflow:hidden;flex:none}
+  #lanebar .lane-bar i{display:block;height:100%;border-radius:2px;opacity:.9;transition:width .6s}
+  #lanebar .lane.asleep .lbl{opacity:.62}
+  
 
 
   #hud{position:fixed;left:50%;bottom:calc(56px + var(--sab));transform:translateX(-50%);z-index:9;
@@ -1174,32 +1182,152 @@ const SEA_ROUTES = [
     [55.3,25.2],[58,23],[61,19],[65,12],[72,4],[79,2],[88,4],[95,6],[103.8,1.3]
   ]}
 ];
-// Real sea lane along its traced waypoints. Catmull-Rom interpolates chords in
-// 3-D and can dip INSIDE the sphere between distant waypoints, so the smoothed
-// polyline is resampled and re-projected back onto the globe radius.
+/* ============================================================
+   LANES — charted corridors with live traffic ribbons.
+   The geometry is chartography (real trade routes, hand-traced);
+   the life comes from AIS. Every poll re-assigns the feed's vessels
+   to corridors by cross-track distance, and each corridor's STYLE
+   follows its live tally: no tracked traffic sleeps to a dim spine,
+   a busy corridor lights up its carriageways. Counts shown in the
+   legend are computed from live positions only — the moving dashes
+   are traffic-flow styling (direction opposite on adjacent
+   carriageways), never an implied vessel position.
+   ============================================================ */
+const LANE_TALLY_KM = 150;          // corridor half-width for the live tally
+const LANE_STRAND_GAP_KM = 34;      // carriageway spacing (perpendicular offset)
+const laneClock = { value: 0 };     // one clock shared by every strand shader
+
+const LANE_VERT = `
+  attribute float aT;
+  varying float vT;
+  void main(){
+    vT = aT;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }`;
+const LANE_FRAG = `
+  uniform float uTime, uDash, uSpeed, uDir, uOpacity;
+  uniform vec3 uColor;
+  varying float vT;
+  void main(){
+    float d = fract(vT * uDash - uTime * uSpeed * uDir);
+    float pulse = smoothstep(0.0, 0.10, d) * smoothstep(0.55, 0.40, d);
+    float ends = smoothstep(0.0, 0.03, vT) * smoothstep(1.0, 0.97, vT);
+    gl_FragColor = vec4(uColor, pulse * uOpacity * ends);
+  }`;
+
 function addSeaRoute(def) {
-  const positions = def.pts.map(([lon, lat]) => {
-    const v = unitVector(lat, lon).multiplyScalar(SURFACE_R + 0.05);
-    return v;
-  });
+  const positions = def.pts.map(([lon, lat]) =>
+    unitVector(lat, lon).multiplyScalar(SURFACE_R + 0.05));
   const rough = new THREE.CatmullRomCurve3(positions, false, 'centripetal', 0.5);
-  const onSphere = rough.getPoints(240).map(p => p.clone().setLength(SURFACE_R + 0.05));
-  const curve = new THREE.CatmullRomCurve3(onSphere, false, 'centripetal', 0.5);
-  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 220, 0.011, 6, false),
-    new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: 0.95 }));
-  routeGroup.add(tube);
+  // Resample then re-project onto the globe radius: Catmull-Rom interpolates
+  // chords in 3-D and can dip INSIDE the sphere between distant waypoints.
+  const pts = rough.getPoints(240).map(p => p.clone().setLength(SURFACE_R + 0.05));
 
-  const flow = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(220)),
-    new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.12, gapSize: 0.3, transparent: true, opacity: 0.7 }));
-  flow.computeLineDistances();
-  routeGroup.add(flow);
+  const lane = { name: def.name, color: def.color, pts, count: 0,
+                 multiplier: 1, strands: [] };
+  // Flat UNIT-vector centreline for cross-track tallying: the dot of two unit
+  // vectors is cos(central angle), so acos(dot)·EARTH_KM is true kilometres.
+  // (A first draft stored the radius'ed scene coordinates — anything within
+  // ~62° of a chain point clamped to ~0 km and inflated tallies.)
+  lane.flat = new Float32Array(3 * pts.length);
+  pts.forEach((q, i) => {
+    lane.flat[3*i] = q.x / SURFACE_R; lane.flat[3*i+1] = q.y / SURFACE_R;
+    lane.flat[3*i+2] = q.z / SURFACE_R;
+  });
 
-  // No decorative marker is animated along the lane. A moving dot here would
-  // read as a ship position it cannot actually justify; real vessels are
-  // plotted from AIS instead (see buildVesselLayer).
-  lanes.push({ tube, flow, name: def.name, color: def.color });
+  // Centre spine + two optional carriageways per side, nearest-first so a
+  // small tally lights only the inner strands. A carriageway is a parallel
+  // offset on the sphere: each point rotates about an axis that is
+  // perpendicular to both the local flow direction and the radial — rotating
+  // about the radial itself would spin the point on its own axis (identity)
+  // and collapse every strand onto the spine.
+  for (const s of [0, -1, 1, -2, 2]) {
+    const ang = (s * LANE_STRAND_GAP_KM) / EARTH_KM;
+    const gps = s === 0 ? pts : pts.map((q, i) => {
+      const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(pts.length - 1, i + 1)];
+      const axis = next.clone().sub(prev).cross(q).normalize();
+      return q.clone().applyAxisAngle(axis, ang);
+    });
+    const n = gps.length;
+    const aT = new Float32Array(n), pos = new Float32Array(3 * n);
+    gps.forEach((q, i) => {
+      pos[3*i] = q.x; pos[3*i+1] = q.y; pos[3*i+2] = q.z; aT[i] = i / (n - 1);
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('aT', new THREE.BufferAttribute(aT, 1));
+    const uniforms = {
+      uTime: laneClock,
+      uDash:  { value: s === 0 ? 26 : 18 },
+      uSpeed: { value: s === 0 ? 0.030 : 0.055 },
+      uDir:   { value: s % 2 === 0 ? 1 : -1 },
+      uColor: { value: new THREE.Color(def.color) },
+      uOpacity: { value: 0 },
+    };
+    const mesh = new THREE.Line(geo, new THREE.ShaderMaterial({
+      uniforms, vertexShader: LANE_VERT, fragmentShader: LANE_FRAG,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    mesh.visible = false;
+    routeGroup.add(mesh);
+    lane.strands.push({ mesh, uniforms, spine: s === 0 });
+  }
+  lanes.push(lane);
 }
 SEA_ROUTES.forEach(addSeaRoute);
+
+/* Live tally: a vessel counts for every corridor it is inside
+   (within LANE_TALLY_KM of the traced centreline). Corridors share
+   approaches — a ship in the Rotterdam roads genuinely is on the North
+   Atlantic Run AND the Suez corridor's northern leg — so assignment is
+   deliberately multi-membership; each count is only ever computed from
+   positions the feed actually returned. */
+function updateLaneTallies(list) {
+  for (const l of lanes) l.count = 0;
+  for (const v of list) {
+    const p = unitVector(v.lat, v.lon);
+    for (const l of lanes) {
+      let best = -1;                       // closest approach as a dot product
+      const a = l.flat;
+      for (let i = 0; i < a.length; i += 3) {
+        const d = a[i]*p.x + a[i+1]*p.y + a[i+2]*p.z;
+        if (d > best) best = d;
+      }
+      if (best > 0 && Math.acos(Math.min(1, best)) * EARTH_KM <= LANE_TALLY_KM) {
+        l.count++;
+      }
+    }
+  }
+  renderLaneTallies();
+}
+
+/* Three moods, driven only by the live count — strands are lit per tally,
+   never for decoration. */
+function setLaneMood(lane) {
+  const M = lane.count === 0 ? { lit: 2, spine: 0.20, side: 0.07 }
+          : lane.count < 10  ? { lit: 3, spine: 0.52, side: 0.42 }
+          :                    { lit: 5, spine: 0.80, side: 0.62 };
+  lane.strands.forEach((s, i) => {
+    s.uniforms.uOpacity.value = (s.spine ? M.spine : M.side) * lane.multiplier;
+    s.mesh.visible = i < M.lit;
+  });
+}
+
+function renderLaneTallies() {
+  const max = Math.max(1, ...lanes.map(l => l.count));
+  let withTraffic = 0;
+  for (let i = 0; i < lanes.length; i++) {
+    const l = lanes[i];
+    if (l.count) withTraffic++;
+    setLaneMood(l);
+    const row = document.querySelector(`#legendList .lane[data-lane="${i}"]`);
+    if (!row) continue;
+    row.querySelector('[data-laneCount]').textContent = String(l.count);
+    row.querySelector('[data-laneBar]').style.width = Math.round(l.count / max * 100) + '%';
+    row.classList.toggle('asleep', l.count === 0);
+  }
+  document.getElementById('laneCount').textContent = withTraffic + '/' + lanes.length;
+}
 
 let planned = null;
 function plotRoute(a, b) {
@@ -1367,12 +1495,14 @@ async function loadVessels() {
     }
     updateVesselPositions(liveVessels);
     renderVesselList(liveVessels);
+    updateLaneTallies(liveVessels);   // corridor styles/badges follow the feed
   } catch (err) {
     liveVessels = [];
     aisState.message = 'Could not reach the AIS proxy (/api/vessels)';
     setPill('pillAis', 'bad', 'AIS offline');
     updateVesselPositions([]);
     renderVesselList([]);
+    updateLaneTallies([]);            // no feed, no claimed traffic
   }
 }
 
@@ -1447,18 +1577,23 @@ function deriveAlertsFrom(iss, ports) {
 
 const legend = SEA_ROUTES.map((r, i) => {
   const c = '#' + r.color.toString(16).padStart(6, '0');
-  return `<div class="lane" data-lane="${i}" role="button" title="Click to isolate this lane"><i class="swatch" style="background:${c};color:${c}"></i><span class="lbl">${r.name}</span><button class="isolate" data-iso="${i}">isolate</button></div>`;
+  return `<div class="lane" data-lane="${i}" role="button" title="Click to isolate this lane">` +
+    `<i class="swatch" style="background:${c};color:${c}"></i>` +
+    `<span class="lbl">${r.name}</span>` +
+    `<span class="lane-tally"><b data-laneCount>0</b> live</span>` +
+    `<span class="lane-bar"><i data-laneBar style="width:0%;background:${c}"></i></span>` +
+    `<button class="isolate" data-iso="${i}">isolate</button></div>`;
 }).join('');
 document.getElementById('legendList').innerHTML = legend;
-document.getElementById('laneCount').textContent = SEA_ROUTES.length;
+renderLaneTallies();       // first paint: all corridors asleep until the feed polls
 
 let isolated = null;
 function setIsolate(idx) {
   isolated = (isolated === idx) ? null : idx;
   lanes.forEach((lane, i) => {
     const on = isolated === null || i === isolated;
-    lane.tube.material.opacity = isolated === null ? 0.95 : (on ? 1 : 0.045);
-    lane.flow.material.opacity = isolated === null ? 0.7 : (on ? 0.95 : 0.03);
+    lane.multiplier = on ? 1.15 : 0.03;   // mood×isolation; setLaneMood applies
+    setLaneMood(lane);
   });
   document.querySelectorAll('#legendList .lane').forEach((el, i) => {
     el.classList.toggle('isolated', i === isolated);
@@ -1823,6 +1958,10 @@ function animate() {
   for (const m of vesselMeshes) {
     if (m.group.visible) m.glow.material.opacity = 0.55 + 0.2 * Math.sin(t * 3);
   }
+
+  // Lane-ribbon dash flow (style only — the sourced traffic is the vessel
+  // dots themselves and the per-corridor counts, recomputed at each poll)
+  laneClock.value = t;
   if (planned) {
     planned.t = (planned.t + dt * 0.08) % 1;
     planned.pulse.position.copy(planned.curve.getPoint(planned.t));
