@@ -2094,6 +2094,13 @@ function currentSheet() {
 // Phone opens globe-first: the Earth is the subject, so nothing covers it
 // until the user asks for a panel from the tabs below. Desktop opens nothing.
 showSheet('');
+
+/* Manifest shortcuts are deep links, and they must do what their labels say:
+   '?view=tracker' opens the live-fleet drawer, '?view=planner' the route
+   planner. Unknown or absent values fall through to the globe-first default. */
+const launchView = new URLSearchParams(location.search).get('view');
+if (launchView === 'tracker') showSheet('leftcol');
+if (launchView === 'planner') showSheet('rightcol');
 </script>
 </body>
 </html>
