@@ -113,6 +113,15 @@
     display:flex;flex-direction:column;gap:10px;pointer-events:none;
   }
   #leftcol > *{pointer-events:auto}
+  /* Vessel motion filter: a feed of 140 rows is a data dump until the reader
+     can split it. The filter classifies exactly what each row's tag already
+     claims — no second system of truth. */
+  #shipFilters{display:flex;gap:6px;flex:0 0 auto}
+  #shipFilters button{flex:1;background:rgba(20,34,66,.5);border:1px solid var(--line);color:#9dc0e8;
+    border-radius:999px;padding:5px 0;font-size:9.5px;letter-spacing:1px;text-transform:uppercase;
+    cursor:pointer;font-family:inherit;transition:color .15s,border-color .15s}
+  #shipFilters button:hover{border-color:rgba(125,180,255,.5)}
+  #shipFilters button.on{color:#e6f1ff;border-color:rgba(125,180,255,.55);background:rgba(77,163,255,.16)}
   #kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;flex:0 0 auto}
   /* Telemetry is status, not task: it can park itself and Earth takes the
      freed attention back. Desktop-only control; the phone strip needs its
@@ -253,7 +262,14 @@
   .chip input{accent-color:#4da3ff;width:12px;height:12px;cursor:pointer}
   .chip:has(input:not(:checked)){opacity:.45}
 
-  /* ---------- about overlay ---------- */
+  /* ---------- first-run orientation: one card, shown once, gone forever ---------- */
+  #onboard{position:fixed;left:50%;bottom:calc(84px + var(--sab));transform:translateX(-50%);
+    z-index:40;display:none;max-width:560px;width:min(92vw,560px);padding:14px 18px;border-radius:14px;
+    align-items:center;gap:14px}
+  #onboard.show{display:flex}
+  #onboard .txt{display:flex;flex-direction:column;gap:3px;font-size:12px;color:#c9dcf5;line-height:1.55}
+  #onboard b{color:#fff;letter-spacing:.3px}
+  #onboard button{flex:none}
   #about{position:fixed;inset:0;z-index:60;background:rgba(3,6,15,.74);backdrop-filter:blur(14px);
     display:none;place-items:center}
   #about .card{max-width:580px;width:92vw;padding:28px 30px;border-radius:18px}
@@ -261,6 +277,13 @@
   #about p{font-size:12.5px;line-height:1.7;color:#c9dcf5;margin-bottom:10px}
   #about .k{display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px dashed rgba(125,180,255,.14);color:#9dc0e8}
   #about .k b{color:#e6f1ff}
+  #aboutTabs{display:flex;gap:8px;margin-bottom:14px}
+  #aboutTabs button{flex:1;background:rgba(20,34,66,.5);border:1px solid var(--line);color:#9dc0e8;
+    border-radius:999px;padding:7px 0;font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;
+    cursor:pointer;font-family:inherit;transition:color .15s,border-color .15s}
+  #aboutTabs button.on{color:#e6f1ff;border-color:rgba(125,180,255,.55);background:rgba(77,163,255,.16)}
+  #about .pane{display:none}
+  #about .pane.on{display:block}
   .ghostbtn{flex:none !important;background:rgba(20,34,66,.6);border:1px solid var(--line);color:#cfe4ff;
     border-radius:999px;padding:5px 14px;font-size:11px;letter-spacing:1.2px;cursor:pointer;box-shadow:none}
   .ghostbtn:hover{border-color:rgba(125,180,255,.55)}
@@ -457,6 +480,12 @@
   <div id="grabber" class="grabber-el" aria-hidden="true"></div>
   <section class="panel glass" id="shipments">
     <h2>Live Vessels <span class="count" id="shipCount">connecting…</span></h2>
+    <div id="shipFilters" role="group" aria-label="Vessel motion filter">
+      <button type="button" data-filt="all" class="on">All</button>
+      <button type="button" data-filt="underway">Underway</button>
+      <button type="button" data-filt="slow">Slow</button>
+      <button type="button" data-filt="moored">Moored</button>
+    </div>
     <div id="shipList"></div>
   </section>
 </div>
@@ -498,6 +527,15 @@
   <span>FPS <b id="hudFps">60</b></span>
 </div>
 
+<div id="onboard">
+  <div class="txt">
+    <b>Drag to orbit · scroll to zoom</b>
+    <span>Tap a lane row to isolate one corridor — tap again to release.</span>
+    <span>VESSELS holds the live feed, ROUTE plots charted corridors — both leave the result on the globe. Telemetry parks itself for a wider view.</span>
+  </div>
+  <button id="onboardBtn" type="button" class="ghostbtn">Got it</button>
+</div>
+
 <div id="chips">
   <label class="chip"><input type="checkbox" id="lyClouds" checked aria-label="Clouds layer"><span>Clouds</span></label>
   <label class="chip"><input type="checkbox" id="lyWind" checked title="Wind streaks · Open-Meteo model analysis, pending" aria-label="Wind streaks layer"><span>Wind</span></label>
@@ -516,32 +554,39 @@
 
 <div id="about">
   <div class="card glass">
-    <h3>Orbital Freight — Earth-View Shipping Console</h3>
-    <p>A mission-view of global ocean-freight traffic, lit by a single Sun whose direction is derived
-      from UTC — solar longitude in the ecliptic, declination from the exact spherical relation, and
-      the equation of time applied. Orbit the globe, read the terminator, and inspect the world's major
-      trade lanes — from the Strait of Malacca to the Panama Canal.</p>
-    <div class="k"><span>Basemap</span><b>Blue Marble-class texture via third-party mirror (provenance unverified)</b></div>
-    <div class="k"><span>City lights</span><b>NASA "Earth at Night" composite (pre-VIIRS, not Black Marble)</b></div>
-    <div class="k"><span>Clouds</span><b>Static MODIS-derived composite — not live satellite imagery</b></div>
-    <div class="k"><span>Day / night</span><b>UTC → solar longitude + declination + equation of time; geometry and tiles share one source</b></div>
-    <div class="k"><span>ISS</span><b>TLE (element set) propagated client-side with satellite.js SGP4 · fallback: wheretheiss.at telemetry anchors</b></div>
-    <div class="k"><span>Port weather</span><b>Open-Meteo model analysis (nowcast) · Lagos &amp; Rotterdam</b></div>
-    <div class="k"><span>Wind patterns</span><b>Open-Meteo 10-m wind model analysis, global 15° grid · streaks are model wind, not satellite imagery</b></div>
-    <div class="k"><span>Sea state</span><b>Open-Meteo marine model · North Sea gridpoint off Rotterdam</b></div>
-    <div class="k"><span>Vessel positions</span><b>Live AIS via server-side proxy (needs a provider key)</b></div>
-    <div class="k"><span>Lanes &amp; ports</span><b>Real coordinates, great-circle geometry</b></div>
-    <div class="k"><span>Scene scale</span><b>Lighting directions exact; Moon · 1/60 real distance, Sun and planets at display distances</b></div>
-    <div class="k"><span>Background sky</span><b>Synthetic random starfield — not a real star catalog</b></div>
-    <p style="margin-top:12px;color:var(--muted)">Values on this page are drawn from the sources listed above.
-      Anything that cannot be sourced is shown as unavailable rather than estimated. There is deliberately
-      no distance-based "risk" rating — real maritime risk is chokepoint- and weather-specific, and none
-      of the sources here serve it. Route ETAs are a great-circle distance divided by a stated 17-knot
-      service speed (756 km/day) — a planning figure, not a booking.</p>
-    <p style="margin-top:10px;color:var(--muted)">Drag to orbit · scroll to zoom · use the focus menu to follow
-      a body · click a lane to isolate it · click a vessel row to fly to its reported position.
-      Built with three.js r160 and public NASA texture sets. This is not a NASA product; "NASA" refers
-      only to the origin of the texture data.</p>
+    <div id="aboutTabs" role="group" aria-label="About sections">
+      <button type="button" data-tab="abAbout" class="on">About</button>
+      <button type="button" data-tab="abData">Data &amp; sources</button>
+    </div>
+    <div id="abAbout" class="pane on">
+      <p>A mission-view of global ocean-freight traffic, lit by a single Sun whose direction is derived
+        from UTC — solar longitude in the ecliptic, declination from the exact spherical relation, and
+        the equation of time applied. Orbit the globe, read the terminator, and inspect the world's major
+        trade lanes — from the Strait of Malacca to the Panama Canal.</p>
+      <div class="k"><span>Scene scale</span><b>Lighting directions exact; Moon · 1/60 real distance, Sun and planets at display distances</b></div>
+      <p style="color:var(--muted)">Drag to orbit · scroll to zoom · use the focus menu to follow
+        a body · click a lane to isolate it · click a vessel row to fly to its reported position.
+        Built with three.js r160 and public NASA texture sets. This is not a NASA product; "NASA" refers
+        only to the origin of the texture data.</p>
+    </div>
+    <div id="abData" class="pane">
+      <div class="k"><span>Basemap</span><b>Blue Marble-class texture via third-party mirror (provenance unverified)</b></div>
+      <div class="k"><span>City lights</span><b>NASA "Earth at Night" composite (pre-VIIRS, not Black Marble)</b></div>
+      <div class="k"><span>Clouds</span><b>Static MODIS-derived composite — not live satellite imagery</b></div>
+      <div class="k"><span>Day / night</span><b>UTC → solar longitude + declination + equation of time; geometry and tiles share one source</b></div>
+      <div class="k"><span>ISS</span><b>TLE (element set) propagated client-side with satellite.js SGP4 · fallback: wheretheiss.at telemetry anchors</b></div>
+      <div class="k"><span>Port weather</span><b>Open-Meteo model analysis (nowcast) · Lagos &amp; Rotterdam</b></div>
+      <div class="k"><span>Wind patterns</span><b>Open-Meteo 10-m wind model analysis, global 15° grid · streaks are model wind, not satellite imagery</b></div>
+      <div class="k"><span>Sea state</span><b>Open-Meteo marine model · North Sea gridpoint off Rotterdam</b></div>
+      <div class="k"><span>Vessel positions</span><b>Live AIS via server-side proxy (needs a provider key)</b></div>
+      <div class="k"><span>Lanes &amp; ports</span><b>Real coordinates, great-circle geometry</b></div>
+      <div class="k"><span>Background sky</span><b>Synthetic random starfield — not a real star catalog</b></div>
+      <p style="margin-top:12px;color:var(--muted)">Values on this page are drawn from the sources listed above.
+        Anything that cannot be sourced is shown as unavailable rather than estimated. There is deliberately
+        no distance-based "risk" rating — real maritime risk is chokepoint- and weather-specific, and none
+        of the sources here serve it. Route ETAs are the charted-corridor distance divided by a stated
+        17-knot service speed (756 km/day) — a planning figure, not a booking.</p>
+    </div>
   </div>
 </div>
 
@@ -1572,6 +1617,15 @@ function updateVesselPositions(list) {
   });
 }
 
+let shipFilter = 'all';
+document.getElementById('shipFilters').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-filt]');
+  if (!btn) return;
+  shipFilter = btn.dataset.filt;
+  document.querySelectorAll('#shipFilters button').forEach(b => b.classList.toggle('on', b === btn));
+  renderVesselList(liveVessels);
+});
+
 function renderVesselList(list) {
   const el = document.getElementById('shipList');
   const count = document.getElementById('shipCount');
@@ -1583,11 +1637,26 @@ function renderVesselList(list) {
     count.textContent = 'no live feed';
     return;
   }
+  // The filter reads the same thresholds the row tags render — the list and
+  // its tags can never disagree about which bucket a vessel is in.
+  const tagOf = kn => kn > 14 ? 'Underway' : (kn != null && kn > 0 ? 'Slow' : 'Moored');
+  const shown = list.map((v, i) => [v, i]).filter(([v]) => {
+    const t = tagOf(v.speedKn).toLowerCase();
+    return shipFilter === 'all' || t === shipFilter;
+  });
+  if (!shown.length) {
+    el.innerHTML = '<div class="alert info"><div class="ico">i</div><div class="txt">' +
+      'No vessels in the "' + shipFilter + '" bucket right now' +
+      '<span class="meta">the feed itself is live — ' + list.length + ' vessels reporting</span>' +
+      '</div></div>';
+    count.textContent = '0 shown · ' + list.length + ' live';
+    return;
+  }
   const now = Date.now() / 1000;
-  el.innerHTML = list.map((v, i) => {
+  el.innerHTML = shown.map(([v, i]) => {
     const kn = v.speedKn;
     const tag = kn > 14 ? 'ok' : (kn != null && kn > 0 ? 'info' : 'warn');
-    const tagTxt = kn > 14 ? 'Underway' : (kn != null && kn > 0 ? 'Slow' : 'Moored');
+    const tagTxt = tagOf(kn);
     const age = v.timestamp ? Math.max(0, Math.round(now - v.timestamp)) : null;
     const ageTxt = age == null ? 'position age unknown'
       : (age < 90 ? 'position current' : 'position ' + Math.round(age / 60) + ' min old');
@@ -1603,7 +1672,8 @@ function renderVesselList(list) {
       <div class="eta">${ageTxt}</div>
     </div>`;
   }).join('');
-  count.textContent = list.length + ' live · ' + new Date().toISOString().slice(11, 16) + ' UTC';
+  count.textContent = shown.length + (shipFilter === 'all' ? ' live' : ' shown · ' + list.length + ' live') +
+    ' · ' + new Date().toISOString().slice(11, 16) + ' UTC';
 }
 
 async function loadVessels() {
@@ -1932,6 +2002,15 @@ document.getElementById('about').addEventListener('click', e => {
 });
 addEventListener('keydown', e => {
   if (e.key === 'Escape') document.getElementById('about').style.display = 'none';
+});
+// About = what the console is and how to hold it; Data & sources = what every
+// reading is made of. Two panes so everyday help and provenance stop sharing
+// one long essay.
+document.getElementById('aboutTabs').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-tab]');
+  if (!btn) return;
+  document.querySelectorAll('#aboutTabs button').forEach(b => b.classList.toggle('on', b === btn));
+  document.querySelectorAll('#about .pane').forEach(p => p.classList.toggle('on', p.id === btn.dataset.tab));
 });
 // ---------- PWA ----------
 const installBtn = document.getElementById('installBtn');
@@ -2328,6 +2407,16 @@ kpiToggle.addEventListener('click', () => {
   kpiToggle.setAttribute('aria-expanded', String(!collapsed));
   fitGlobe();
 });
+
+/* First-run orientation: three sentences, shown once — the console assumes
+   an operator, the overlay is how a visitor becomes one. Skipped forever
+   after the first acknowledgment. */
+const onboard = document.getElementById('onboard');
+if (!localStorage.getItem('ofOnboardSeen')) onboard.classList.add('show');
+document.getElementById('onboardBtn').onclick = () => {
+  onboard.classList.remove('show');
+  localStorage.setItem('ofOnboardSeen', '1');
+};
 
 mtabs.addEventListener('click', e => {
   const btn = e.target.closest('button');
